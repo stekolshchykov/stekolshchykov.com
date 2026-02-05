@@ -8,19 +8,21 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
     uCameraDistance: { value: lowPowerMode ? 19.8 : 23.8 },
     uCameraYaw: { value: -0.2 },
     uCameraPitch: { value: -0.08 },
-    uBlackHoleMass: { value: lowPowerMode ? 0.43 : 0.52 },
-    uStepSize: { value: lowPowerMode ? 0.3 : 0.19 },
-    uGravitationalLensing: { value: lowPowerMode ? 1.75 : 2.25 },
+    uBlackHoleMass: { value: lowPowerMode ? 0.64 : 0.82 },
+    uStepSize: { value: lowPowerMode ? 0.18 : 0.085 },
+    uGravitationalLensing: { value: lowPowerMode ? 2.06 : 2.96 },
     uDiskInnerRadius: { value: 2.75 },
     uDiskOuterRadius: { value: 8.6 },
-    uDiskBrightness: { value: lowPowerMode ? 1.5 : 2.05 },
+    uDiskBrightness: { value: lowPowerMode ? 2.12 : 3.35 },
     uDiskTemperature: { value: 14500.0 },
     uDiskRotationSpeed: { value: -4.5 },
-    uStarDensity: { value: lowPowerMode ? 0.07 : 0.11 },
+    uDiskScreenTilt: { value: lowPowerMode ? 0.38 : 0.32 },
+    uDiskScreenAngle: { value: -0.62 },
+    uStarDensity: { value: lowPowerMode ? 0.15 : 0.23 },
     uStarSize: { value: lowPowerMode ? 1.45 : 1.2 },
-    uStarBrightness: { value: lowPowerMode ? 0.58 : 0.78 },
-    uNebulaStrength: { value: lowPowerMode ? 0.5 : 0.72 },
-    uRaySteps: { value: lowPowerMode ? 58.0 : 104.0 },
+    uStarBrightness: { value: lowPowerMode ? 0.8 : 1.12 },
+    uNebulaStrength: { value: lowPowerMode ? 0.32 : 0.5 },
+    uRaySteps: { value: lowPowerMode ? 88.0 : 156.0 },
   };
 }
 
@@ -48,6 +50,8 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
   uniform float uDiskBrightness;
   uniform float uDiskTemperature;
   uniform float uDiskRotationSpeed;
+  uniform float uDiskScreenTilt;
+  uniform float uDiskScreenAngle;
   uniform float uStarDensity;
   uniform float uStarSize;
   uniform float uStarBrightness;
@@ -221,7 +225,7 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     bool escaped = false;
     bool captured = false;
 
-    for (int i = 0; i < 80; i++) {
+    for (int i = 0; i < 192; i++) {
       if (float(i) >= uRaySteps || escaped || captured || alpha > 0.992) {
         break;
       }
@@ -271,12 +275,42 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     }
 
     float bhScreenR = length(uv - uBlackHoleOffset);
-    float apparentRadius = 0.165 + rs * 0.016;
-    float photonRing = exp(-pow((bhScreenR - apparentRadius * 1.45) / (apparentRadius * 0.3), 2.0));
-    color += vec3(0.73, 0.87, 1.0) * photonRing * 0.26;
+    float apparentRadius = 0.26 + rs * 0.04;
 
-    color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
-    color = clamp(color * 1.06 - 0.015, 0.0, 1.0);
+    float shadowCore = 1.0 - smoothstep(apparentRadius * 0.82, apparentRadius * 0.95, bhScreenR);
+    float shadowFeather = 1.0 - smoothstep(apparentRadius * 0.95, apparentRadius * 1.08, bhScreenR);
+    color *= 1.0 - shadowCore * 0.996;
+    color *= 1.0 - shadowFeather * 0.28;
+
+    float photonCore = exp(-pow((bhScreenR - apparentRadius * 1.0) / (apparentRadius * 0.045), 2.0));
+    float photonRing = exp(-pow((bhScreenR - apparentRadius * 1.18) / (apparentRadius * 0.095), 2.0));
+    float photonOuter = exp(-pow((bhScreenR - apparentRadius * 1.58) / (apparentRadius * 0.16), 2.0));
+    color += vec3(0.96, 0.99, 1.0) * photonCore * 0.94;
+    color += vec3(0.66, 0.86, 1.0) * photonRing * 0.5;
+    color += vec3(0.2, 0.37, 0.58) * photonOuter * 0.15;
+
+    float focusBoost = exp(-pow((bhScreenR - apparentRadius * 1.18) / (apparentRadius * 0.42), 2.0));
+    color *= 1.0 + focusBoost * 0.26;
+
+    // Force a readable accretion ellipse on screen so the black-hole "ring" remains visible.
+    vec2 diskUV = uv - uBlackHoleOffset;
+    float c = cos(uDiskScreenAngle);
+    float s = sin(uDiskScreenAngle);
+    vec2 diskRot = vec2(
+      c * diskUV.x - s * diskUV.y,
+      s * diskUV.x + c * diskUV.y
+    );
+    diskRot.y /= max(uDiskScreenTilt, 0.18);
+    float diskScreenR = length(diskRot);
+    float ellipseCore = exp(-pow((diskScreenR - apparentRadius * 1.28) / (apparentRadius * 0.09), 2.0));
+    float ellipseGlow = exp(-pow((diskScreenR - apparentRadius * 1.52) / (apparentRadius * 0.2), 2.0));
+    float ellipseMask = 1.0 - shadowCore * 0.8;
+    color += vec3(0.92, 0.98, 1.0) * ellipseCore * 0.68 * ellipseMask;
+    color += vec3(0.48, 0.73, 0.98) * ellipseGlow * 0.24 * ellipseMask;
+
+    color = max(color, vec3(0.0));
+    color = pow(color, vec3(0.9));
+    color = clamp(color * 1.28 - 0.01, 0.0, 1.0);
     gl_FragColor = vec4(color, 1.0);
   }
 `;

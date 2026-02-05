@@ -18,6 +18,10 @@ export function AboutFace({ locale }: AboutFaceProps) {
   return (
     <UIPage>
       <UIPill>{ui.welcome}</UIPill>
+      <UIBlock className="welcome-identity">
+        <p className="welcome-identity__role">{ui.personRole}</p>
+        <h3 className="welcome-identity__name">{ui.personName}</h3>
+      </UIBlock>
       <UITitle>{source.hi_title}</UITitle>
       <UILead>{source.hi_post_title}</UILead>
 

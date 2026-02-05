@@ -1,11 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
-import { AdditiveBlending, AmbientLight, BackSide, BoxGeometry, BufferGeometry, Color, ConeGeometry, EdgesGeometry, Float32BufferAttribute, Group, LineBasicMaterial, LineSegments, Material, Mesh, MeshStandardMaterial, PerspectiveCamera, PointLight, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, TextureLoader, WebGLRenderer, WireframeGeometry } from 'three';
+import { AdditiveBlending, BackSide, BoxGeometry, BufferGeometry, Color, EdgesGeometry, Float32BufferAttribute, Group, LineBasicMaterial, LineSegments, Material, Mesh, PerspectiveCamera, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLRenderer, WireframeGeometry } from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRoot } from 'react-dom/client';
 import type { Locale } from '../content/stekolschikovContent';
-import { logEvent, logEventThrottled, logRuntime } from '../observability/logger';
-import { getWhaleCount, WHALE_DISC_TEXTURE_PATH, WHALE_GLB_PATH } from '../scene/whaleConfig';
+import { logEvent, logRuntime } from '../observability/logger';
 import { BLACK_HOLE_FRAGMENT_SHADER, BLACK_HOLE_VERTEX_SHADER, createBlackHoleUniforms } from '../scene/blackHoleShader';
 
 const AboutFace = lazy(() => import('./faces/AboutFace').then((m) => ({ default: m.AboutFace })));
@@ -30,6 +28,26 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
   const targetRotationRef = useRef(targetRotation);
   const startAnimationRef = useRef<(() => void) | null>(null);
   const rotationBurstRef = useRef({ active: false, startMs: 0, seed: 0 });
+  const cameraFlightRef = useRef({
+    active: false,
+    startMs: 0,
+    durationMs: 1080,
+    yawAmp: 0,
+    pitchAmp: 0,
+    rollAmp: 0,
+    phase: 0,
+    shotReady: false,
+    distanceMode: 'far' as 'near' | 'far',
+    startCameraDistance: 0,
+    targetCameraDistance: 0,
+    startShaderDistance: 0,
+    targetShaderDistance: 0,
+    orbitScale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    shaderYawBias: 0,
+    shaderPitchBias: 0,
+  });
   const hasInitializedTargetRef = useRef(false);
 
   useEffect(() => {
@@ -40,6 +58,33 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         startMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
         seed: rotationBurstRef.current.seed + 1,
       };
+      const nearShot = Math.random() < 0.5;
+      cameraFlightRef.current = {
+        active: true,
+        startMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+        durationMs: nearShot ? 1260 : 1380,
+        yawAmp: (Math.random() * 2 - 1) * 0.64,
+        pitchAmp: (Math.random() * 2 - 1) * 0.3,
+        rollAmp: (Math.random() * 2 - 1) * 0.18,
+        phase: Math.random() * Math.PI * 2,
+        shotReady: false,
+        distanceMode: nearShot ? 'near' : 'far',
+        startCameraDistance: 0,
+        targetCameraDistance: 0,
+        startShaderDistance: 0,
+        targetShaderDistance: 0,
+        orbitScale: nearShot ? 1.65 : 1.15,
+        offsetX: (Math.random() * 2 - 1) * 0.3,
+        offsetY: (Math.random() * 2 - 1) * 0.2,
+        shaderYawBias: (Math.random() * 2 - 1) * 0.8,
+        shaderPitchBias: (Math.random() * 2 - 1) * 0.5,
+      };
+      logRuntime('debug', 'scene3d-camera', 'Camera flight triggered', {
+        shot: nearShot ? 'near' : 'far',
+        yawAmp: cameraFlightRef.current.yawAmp,
+        pitchAmp: cameraFlightRef.current.pitchAmp,
+        rollAmp: cameraFlightRef.current.rollAmp,
+      });
     } else {
       hasInitializedTargetRef.current = true;
     }
@@ -58,10 +103,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const isTablet = viewportWidth < 1100;
     const isLowCoreCpu = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
     const lowPowerMode = prefersReducedMotion || isCompactViewport || isLowCoreCpu;
-    const maxPixelRatio = lowPowerMode ? 1 : 1.5;
-    const targetFPS = lowPowerMode ? 24 : 60;
+    const maxPixelRatio = lowPowerMode ? 1 : 1.35;
+    const targetFPS = lowPowerMode ? 24 : 50;
     const floatAmplitude = lowPowerMode ? 8 : 20;
-    const lightCount = lowPowerMode ? 3 : 6;
     const faceSize = isPhone ? 420 : isTablet ? 620 : 860;
     const facePadding = isPhone ? 14 : isTablet ? 20 : 28;
     const faceAlpha = lowPowerMode ? 0.92 : 0.78;
@@ -83,6 +127,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const scene = new Scene();
     const camera = new PerspectiveCamera(50, viewportWidth / viewportHeight, 1, 5000);
     camera.position.z = isPhone ? 1250 : isTablet ? 1400 : 1500;
+    const previousCameraPosition = new Vector3(camera.position.x, camera.position.y, camera.position.z);
+    let cameraDistance = camera.position.z;
 
     const cssRenderer = new CSS3DRenderer();
     cssRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -104,217 +150,108 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       depthWrite: false,
       depthTest: false,
     });
+    const baseBlackHoleYaw = blackHoleUniforms.uCameraYaw.value;
+    const baseBlackHolePitch = blackHoleUniforms.uCameraPitch.value;
+    const baseBlackHoleOffsetX = blackHoleUniforms.uBlackHoleOffset.value.x;
+    const baseBlackHoleOffsetY = blackHoleUniforms.uBlackHoleOffset.value.y;
+    const baseDiskScreenAngle = blackHoleUniforms.uDiskScreenAngle.value;
+    const baseDiskScreenTilt = blackHoleUniforms.uDiskScreenTilt.value;
     const blackHoleSky = new Mesh(blackHoleGeometry, blackHoleMaterial);
     blackHoleSky.frustumCulled = false;
     blackHoleSky.renderOrder = -1000;
     webglScene.add(blackHoleSky);
     logEvent('scene.blackhole.shader.ready', { mode: 'webgl-raymarch', lowPowerMode });
 
-    // Particle whale flock in the background.
-    type WhaleActor = {
-      group: Group;
-      orbitX: number;
-      baseY: number;
-      baseZ: number;
-      phase: number;
-      speed: number;
-      bobSpeed: number;
-      bobAmp: number;
-      zAmp: number;
-      yawAmp: number;
-      rollAmp: number;
-      direction: 1 | -1;
-      yawBase: number;
-      yawCurrent: number;
-      pitchCurrent: number;
-      rollCurrent: number;
-      headingOffset: number;
-      foregroundRunner: boolean;
-      waveSpeed: number;
-      points?: Points;
-      line?: LineSegments;
-      basePositions?: Float32Array;
-    };
-    const whaleActors: WhaleActor[] = [];
-    const whaleGeometries: BufferGeometry[] = [];
-    const whaleMaterials: Material[] = [];
-    const whaleTextures: Texture[] = [];
-    let sceneDisposed = false;
-    const whaleCount = getWhaleCount(lowPowerMode, isTablet);
-    logEvent('scene.whale.load.start', { whaleCount, source: WHALE_GLB_PATH });
+    const spaceGeometries: BufferGeometry[] = [];
+    const spaceMaterials: Material[] = [];
 
-    const whaleSprite = new TextureLoader().load(
-      WHALE_DISC_TEXTURE_PATH,
-      () => logRuntime('info', 'scene3d', 'Whale sprite loaded', { source: WHALE_DISC_TEXTURE_PATH }),
-      undefined,
-      (error) => logRuntime('warn', 'scene3d', 'Whale sprite load failed, fallback to no map', { error: String(error) })
-    );
-    whaleSprite.colorSpace = SRGBColorSpace;
-    whaleTextures.push(whaleSprite);
-
-    const getWhaleColor = (index: number) => {
-      const seed = (index + 1) * 19.37;
-      const hue = (Math.sin(seed) * 0.5 + 0.5 + Math.random() * 0.35) % 1;
-      const saturation = 0.56 + Math.random() * 0.33;
-      const lightness = 0.5 + Math.random() * 0.2;
-      return new Color().setHSL(hue, saturation, lightness);
-    };
-
-    const createFallbackWhales = () => {
-      for (let i = 0; i < whaleCount; i++) {
-        const whaleColor = getWhaleColor(i);
-        const whaleGroup = new Group();
-        const material = new MeshStandardMaterial({
-          color: whaleColor,
-          emissive: whaleColor.clone().multiplyScalar(0.22),
-          emissiveIntensity: 0.65,
-          transparent: true,
-          opacity: 0.5,
-          roughness: 0.9,
-          metalness: 0.02,
-        });
-        whaleMaterials.push(material);
-
-        const bodyGeometry = new SphereGeometry(80, 16, 12);
-        whaleGeometries.push(bodyGeometry);
-        const body = new Mesh(bodyGeometry, material);
-        body.scale.set(2, 0.75, 0.65);
-        whaleGroup.add(body);
-
-        const tailGeometry = new ConeGeometry(20, 68, 12);
-        whaleGeometries.push(tailGeometry);
-        const tail = new Mesh(tailGeometry, material);
-        tail.position.set(-145, 0, 0);
-        tail.rotation.z = Math.PI / 2;
-        whaleGroup.add(tail);
-
-        webglScene.add(whaleGroup);
-        whaleActors.push({
-          group: whaleGroup,
-          orbitX: cubeSize * (0.2 + i * 0.05),
-          baseY: cubeSize * (0.06 - i * 0.05),
-          baseZ: cubeSize * (0.28 + i * 0.04),
-          phase: (Math.PI * 2 * i) / whaleCount,
-          speed: (lowPowerMode ? 0.045 : 0.06) + i * 0.01,
-          bobSpeed: 0.6 + i * 0.1,
-          bobAmp: 7 + i * 3,
-          zAmp: 16 + i * 4,
-          yawAmp: 0.09,
-          rollAmp: 0.02,
-          direction: i % 2 === 0 ? 1 : -1,
-          yawBase: i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2,
-          yawCurrent: i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2,
-          pitchCurrent: 0,
-          rollCurrent: 0,
-          headingOffset: 0,
-          foregroundRunner: i === 0,
-          waveSpeed: 0.5 + i * 0.12,
-        });
+    const deepStarCount = lowPowerMode ? 2200 : 5200;
+    const deepStarSpread = lowPowerMode ? 7600 : 10500;
+    const deepStarPositions = new Float32Array(deepStarCount * 3);
+    const deepStarColors = new Float32Array(deepStarCount * 3);
+    const safeVoid = cubeSize * 0.7;
+    for (let i = 0; i < deepStarCount; i++) {
+      const idx = i * 3;
+      let x = (Math.random() * 2 - 1) * deepStarSpread;
+      let y = (Math.random() * 2 - 1) * deepStarSpread * 0.82;
+      let z = (Math.random() * 2 - 1) * deepStarSpread;
+      if (Math.abs(x) < safeVoid && Math.abs(y) < safeVoid && Math.abs(z) < safeVoid) {
+        x *= 2.6;
+        y *= 2.4;
+        z *= 2.6;
       }
+      deepStarPositions[idx] = x;
+      deepStarPositions[idx + 1] = y;
+      deepStarPositions[idx + 2] = z;
 
-      logEvent('scene.whale.fallback.enabled', { actors: whaleActors.length, reason: 'local_glb_load_failed' }, 'warn');
-    };
+      const starHue = 0.54 + Math.random() * 0.16;
+      const starSat = 0.16 + Math.random() * 0.28;
+      const starLum = 0.68 + Math.random() * 0.3;
+      const color = new Color().setHSL(starHue, starSat, Math.min(0.95, starLum));
+      deepStarColors[idx] = color.r;
+      deepStarColors[idx + 1] = color.g;
+      deepStarColors[idx + 2] = color.b;
+    }
 
-    const whaleLoader = new GLTFLoader();
-    whaleLoader.load(
-      WHALE_GLB_PATH,
-      (gltf) => {
-        if (sceneDisposed) return;
+    const deepStarGeometry = new BufferGeometry();
+    deepStarGeometry.setAttribute('position', new Float32BufferAttribute(deepStarPositions, 3));
+    deepStarGeometry.setAttribute('color', new Float32BufferAttribute(deepStarColors, 3));
+    spaceGeometries.push(deepStarGeometry);
 
-        let sourceGeometry: BufferGeometry | null = null;
-        gltf.scene.traverse((child) => {
-          const meshCandidate = child as Mesh;
-          if (!sourceGeometry && meshCandidate.isMesh && meshCandidate.geometry) {
-            sourceGeometry = meshCandidate.geometry as BufferGeometry;
-          }
-        });
+    const deepStarMaterial = new PointsMaterial({
+      size: lowPowerMode ? 2.2 : 2.45,
+      transparent: true,
+      opacity: lowPowerMode ? 0.56 : 0.7,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      vertexColors: true,
+    });
+    spaceMaterials.push(deepStarMaterial);
+    const deepStars = new Points(deepStarGeometry, deepStarMaterial);
+    deepStars.frustumCulled = false;
+    webglScene.add(deepStars);
 
-        if (!sourceGeometry) {
-          logEvent('scene.whale.load.error', { reason: 'no_geometry_in_glb' }, 'warn');
-          createFallbackWhales();
-          return;
-        }
+    const tunnelStarCount = lowPowerMode ? 1200 : 2800;
+    const tunnelDepth = lowPowerMode ? 1500 : 2300;
+    const tunnelRadius = lowPowerMode ? 640 : 980;
+    const tunnelPositions = new Float32Array(tunnelStarCount * 3);
+    const tunnelColors = new Float32Array(tunnelStarCount * 3);
+    const tunnelSpeeds = new Float32Array(tunnelStarCount);
+    for (let i = 0; i < tunnelStarCount; i++) {
+      const idx = i * 3;
+      const radius = Math.sqrt(Math.random()) * tunnelRadius;
+      const angle = Math.random() * Math.PI * 2;
+      tunnelPositions[idx] = Math.cos(angle) * radius;
+      tunnelPositions[idx + 1] = Math.sin(angle) * radius * (0.55 + Math.random() * 0.5);
+      tunnelPositions[idx + 2] = -Math.random() * tunnelDepth;
 
-        for (let i = 0; i < whaleCount; i++) {
-          const whaleColor = getWhaleColor(i);
-          const geometry = sourceGeometry.clone();
-          whaleGeometries.push(geometry);
+      const warpColor = new Color().setHSL(0.56 + Math.random() * 0.14, 0.2 + Math.random() * 0.24, 0.76 + Math.random() * 0.18);
+      tunnelColors[idx] = warpColor.r;
+      tunnelColors[idx + 1] = warpColor.g;
+      tunnelColors[idx + 2] = warpColor.b;
+      tunnelSpeeds[i] = 0.55 + Math.random() * 1.35;
+    }
 
-          const pointsMaterial = new PointsMaterial({
-            size: lowPowerMode ? 2.15 : 2.7,
-            alphaTest: 0.45,
-            transparent: true,
-            blending: AdditiveBlending,
-            map: whaleSprite,
-            vertexColors: true,
-            depthWrite: false,
-            opacity: lowPowerMode ? 0.82 : 0.72,
-          });
-          whaleMaterials.push(pointsMaterial);
+    const tunnelGeometry = new BufferGeometry();
+    tunnelGeometry.setAttribute('position', new Float32BufferAttribute(tunnelPositions, 3));
+    tunnelGeometry.setAttribute('color', new Float32BufferAttribute(tunnelColors, 3));
+    spaceGeometries.push(tunnelGeometry);
+    const tunnelMaterial = new PointsMaterial({
+      size: lowPowerMode ? 2.2 : 2.8,
+      transparent: true,
+      opacity: lowPowerMode ? 0.62 : 0.74,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      vertexColors: true,
+    });
+    spaceMaterials.push(tunnelMaterial);
+    const tunnelStars = new Points(tunnelGeometry, tunnelMaterial);
+    tunnelStars.frustumCulled = false;
+    const tunnelGroup = new Group();
+    tunnelGroup.add(tunnelStars);
+    webglScene.add(tunnelGroup);
 
-          const positionAttr = geometry.getAttribute('position');
-          const colors = new Float32Array(positionAttr.count * 3);
-          for (let c = 0; c < colors.length; c += 3) {
-            colors[c] = whaleColor.r;
-            colors[c + 1] = whaleColor.g;
-            colors[c + 2] = whaleColor.b;
-          }
-          geometry.setAttribute('color', new Float32BufferAttribute(colors, 3));
-
-          const points = new Points(geometry, pointsMaterial);
-
-          const wireframeGeometry = new WireframeGeometry(geometry);
-          whaleGeometries.push(wireframeGeometry);
-          const wireColor = whaleColor.clone().offsetHSL(0, -0.12, 0.08);
-          const lineMaterial = new LineBasicMaterial({
-            color: wireColor,
-            transparent: true,
-            opacity: lowPowerMode ? 0.035 : 0.06,
-            depthTest: false,
-          });
-          whaleMaterials.push(lineMaterial);
-          const line = new LineSegments(wireframeGeometry, lineMaterial);
-
-          const whaleGroup = new Group();
-          whaleGroup.add(line);
-          whaleGroup.add(points);
-          const scale = lowPowerMode ? 1.55 + i * 0.2 : 2.05 + i * 0.24;
-          whaleGroup.scale.setScalar(scale);
-          webglScene.add(whaleGroup);
-
-          whaleActors.push({
-            group: whaleGroup,
-            points,
-            line,
-            basePositions: Float32Array.from((positionAttr.array as Float32Array).slice()),
-            orbitX: cubeSize * (lowPowerMode ? 0.24 + i * 0.05 : 0.3 + i * 0.06),
-            baseY: cubeSize * (0.06 - i * 0.05),
-            baseZ: cubeSize * (lowPowerMode ? 0.27 + i * 0.04 : 0.34 + i * 0.05),
-            phase: (Math.PI * 2 * i) / whaleCount,
-            speed: (lowPowerMode ? 0.055 : 0.075) + i * 0.012,
-            bobSpeed: 0.68 + i * 0.1,
-            bobAmp: (lowPowerMode ? 8 : 10) + i * 3,
-            zAmp: (lowPowerMode ? 18 : 22) + i * 4,
-            yawAmp: 0.095 + i * 0.01,
-            rollAmp: 0.02 + i * 0.008,
-            direction: i % 2 === 0 ? 1 : -1,
-            yawBase: i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2,
-            yawCurrent: i % 2 === 0 ? -Math.PI / 2 : Math.PI / 2,
-            pitchCurrent: 0,
-            rollCurrent: 0,
-            headingOffset: 0,
-            foregroundRunner: i === 0,
-            waveSpeed: 0.65 + i * 0.16,
-          });
-        }
-        logEvent('scene.whale.load.success', { actors: whaleActors.length, source: WHALE_GLB_PATH });
-      },
-      undefined,
-      (error) => {
-        logEvent('scene.whale.load.error', { reason: String(error), source: WHALE_GLB_PATH }, 'error');
-        createFallbackWhales();
-      }
-    );
+    logEvent('scene.starfield.ready', { deepStars: deepStarCount, tunnelStars: tunnelStarCount, lowPowerMode });
 
     const cubeGeometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
     const edges = new EdgesGeometry(cubeGeometry);
@@ -325,17 +262,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     });
     const wireframe = new LineSegments(edges, lineMaterial);
     webglScene.add(wireframe);
-
-    const ambientLight = new AmbientLight(0x404040, 0.5);
-    webglScene.add(ambientLight);
-
-    const lights: PointLight[] = [];
-    const lightColors = [0x8b5cf6, 0x3b82f6, 0x10b981, 0xef4444, 0xf97316, 0x06b6d4];
-    for (let i = 0; i < lightCount; i++) {
-      const light = new PointLight(lightColors[i], lowPowerMode ? 0.2 : 0.3, 600);
-      webglScene.add(light);
-      lights.push(light);
-    }
 
     const cubeGroup = new Group();
     const faceActors: Array<{
@@ -371,15 +297,19 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       element.style.border = `3px solid ${face.color}`;
       element.style.borderRadius = isPhone ? '16px' : '24px';
       element.style.boxShadow = `0 0 42px ${face.color}30, inset 0 0 30px ${face.color}08`;
-      element.style.overflow = 'auto';
+      element.style.overflow = 'hidden';
       element.style.contain = 'layout style paint';
       element.style.willChange = 'transform';
       if (!lowPowerMode) {
         element.style.backdropFilter = 'blur(2px)';
       }
 
+      const scrollHost = document.createElement('div');
+      scrollHost.className = 'cube-face-scroll';
+      element.appendChild(scrollHost);
+
       const FaceComponent = face.component;
-      const root = createRoot(element);
+      const root = createRoot(scrollHost);
       root.render(
         <Suspense fallback={<div style={{ color: '#cbd5e1', padding: '1rem' }}>Loading...</div>}>
           <FaceComponent locale={locale} />
@@ -400,10 +330,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         normal: [face.position[0] / length, face.position[1] / length, face.position[2] / length],
         phase: index * 1.37,
       });
-      const light = lights[index % lights.length];
-      if (light) {
-        light.position.set(face.position[0], face.position[1], face.position[2]);
-      }
     });
 
     scene.add(cubeGroup);
@@ -439,11 +365,11 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      camera.position.z += e.deltaY * 0.5;
-      camera.position.z = Math.max(minZoom, Math.min(maxZoom, camera.position.z));
+      cameraDistance += e.deltaY * 0.5;
+      cameraDistance = Math.max(minZoom, Math.min(maxZoom, cameraDistance));
       logRuntime('debug', 'scene3d-controls', 'Zoom changed', {
         deltaY: e.deltaY,
-        cameraZ: camera.position.z,
+        cameraZ: cameraDistance,
       });
       startAnimationRef.current?.();
     };
@@ -464,6 +390,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       const dy = targetRotationRef.current.y - currentRotationRef.current.y;
       return (
         isDragging ||
+        cameraFlightRef.current.active ||
+        rotationBurstRef.current.active ||
         Math.abs(velocityRef.current.x) > 0.0002 ||
         Math.abs(velocityRef.current.y) > 0.0002 ||
         Math.abs(dx) > 0.0005 ||
@@ -482,8 +410,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       const deltaTime = currentTime - lastTime;
       if (deltaTime < frameDelay) return;
       lastTime = currentTime - (deltaTime % frameDelay);
+      const frameDeltaSeconds = Math.min(0.05, deltaTime / 1000);
 
-      blackHoleSky.position.copy(camera.position);
       blackHoleMaterial.uniforms.uTime.value = currentTime * 0.001;
 
       if (!isDragging) {
@@ -503,14 +431,151 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
       currentRotationRef.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, currentRotationRef.current.x));
 
-      cubeGroup.rotation.x = currentRotationRef.current.x;
-      cubeGroup.rotation.y = currentRotationRef.current.y;
-      wireframe.rotation.x = currentRotationRef.current.x;
-      wireframe.rotation.y = currentRotationRef.current.y;
-
       const floatY = Math.sin(currentTime * 0.0005) * floatAmplitude;
       cubeGroup.position.y = floatY;
       wireframe.position.y = floatY;
+
+      let cameraYaw = 0;
+      let cameraPitch = 0;
+      let cameraRoll = 0;
+      let flightEnvelope = 0;
+      let flightSwirl = 0;
+      let flightOffsetX = 0;
+      let flightOffsetY = 0;
+      let flightShaderYaw = 0;
+      let flightShaderPitch = 0;
+      if (!prefersReducedMotion && cameraFlightRef.current.active) {
+        const flight = cameraFlightRef.current;
+        if (!flight.shotReady) {
+          flight.startCameraDistance = cameraDistance;
+          if (flight.distanceMode === 'near') {
+            flight.targetCameraDistance = Math.max(minZoom * 0.8, minZoom - 120);
+            flight.targetShaderDistance = lowPowerMode
+              ? 12 + Math.random() * 4
+              : 7 + Math.random() * 4.6;
+          } else {
+            flight.targetCameraDistance = Math.min(
+              maxZoom * 0.82,
+              minZoom + (maxZoom - minZoom) * 0.42 + Math.random() * 80
+            );
+            flight.targetShaderDistance = lowPowerMode
+              ? 24 + Math.random() * 9
+              : 32 + Math.random() * 18;
+          }
+          flight.startShaderDistance = blackHoleMaterial.uniforms.uCameraDistance.value;
+          flight.shotReady = true;
+          logRuntime('info', 'scene3d-camera', 'Camera shot configured', {
+            shot: flight.distanceMode,
+            fromCameraDistance: flight.startCameraDistance,
+            toCameraDistance: flight.targetCameraDistance,
+            fromBlackHoleDistance: flight.startShaderDistance,
+            toBlackHoleDistance: flight.targetShaderDistance,
+          });
+        }
+        const durationMs = lowPowerMode
+          ? flight.durationMs * 0.82
+          : flight.durationMs;
+        const progress = (currentTime - flight.startMs) / durationMs;
+        if (progress >= 1) {
+          const finalDistance = flight.shotReady ? flight.targetCameraDistance : cameraDistance;
+          cameraDistance = Math.max(minZoom, Math.min(maxZoom, finalDistance));
+          if (flight.shotReady) {
+            blackHoleMaterial.uniforms.uCameraDistance.value = flight.targetShaderDistance;
+          }
+          cameraFlightRef.current.active = false;
+        } else {
+          const eased = progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+          const envelope = Math.pow(Math.sin(Math.PI * progress), 1.1);
+          const swirl = progress * Math.PI * 2.8 + flight.phase;
+          flightEnvelope = envelope;
+          flightSwirl = swirl;
+          const ampMultiplier = lowPowerMode ? 0.55 : 1;
+          cameraYaw = flight.yawAmp * envelope * ampMultiplier;
+          cameraPitch = flight.pitchAmp * envelope * Math.cos(swirl) * ampMultiplier;
+          cameraRoll = flight.rollAmp * envelope * Math.sin(swirl * 1.2) * ampMultiplier;
+
+          if (flight.shotReady) {
+            const shotDistance =
+              flight.startCameraDistance + (flight.targetCameraDistance - flight.startCameraDistance) * eased;
+            cameraDistance = Math.max(minZoom, Math.min(maxZoom, shotDistance));
+
+            const shaderDistance =
+              flight.startShaderDistance + (flight.targetShaderDistance - flight.startShaderDistance) * eased;
+            blackHoleMaterial.uniforms.uCameraDistance.value = shaderDistance;
+
+            flightOffsetX = flight.offsetX * envelope;
+            flightOffsetY = flight.offsetY * envelope;
+            flightShaderYaw = flight.shaderYawBias * envelope;
+            flightShaderPitch = flight.shaderPitchBias * envelope;
+          }
+        }
+      }
+
+      const cubeTiltX = Math.sin(flightSwirl * 1.2) * 0.2 * flightEnvelope;
+      const cubeTiltY = Math.cos(flightSwirl * 0.95) * 0.32 * flightEnvelope;
+      const cubeTiltZ = Math.sin(flightSwirl * 1.55) * 0.24 * flightEnvelope;
+      cubeGroup.rotation.x = currentRotationRef.current.x + cubeTiltX;
+      cubeGroup.rotation.y = currentRotationRef.current.y + cubeTiltY;
+      cubeGroup.rotation.z = cubeTiltZ;
+      wireframe.rotation.x = currentRotationRef.current.x + cubeTiltX * 1.06;
+      wireframe.rotation.y = currentRotationRef.current.y + cubeTiltY * 1.06;
+      wireframe.rotation.z = cubeTiltZ * 1.1;
+
+      blackHoleMaterial.uniforms.uCameraYaw.value =
+        baseBlackHoleYaw - cameraYaw * 1.9 - cubeTiltY * 0.55 + flightShaderYaw;
+      blackHoleMaterial.uniforms.uCameraPitch.value =
+        baseBlackHolePitch + cameraPitch * 1.55 - cubeTiltX * 0.42 + flightShaderPitch;
+      blackHoleMaterial.uniforms.uBlackHoleOffset.value.set(
+        Math.max(-0.95, Math.min(-0.14, baseBlackHoleOffsetX - cameraYaw * 0.3 - cubeTiltY * 0.11 + flightOffsetX)),
+        Math.max(-0.16, Math.min(0.4, baseBlackHoleOffsetY + cameraPitch * 0.2 + cubeTiltX * 0.09 + flightOffsetY))
+      );
+      blackHoleMaterial.uniforms.uDiskScreenAngle.value =
+        baseDiskScreenAngle + cameraYaw * 1.08 + cubeTiltY * 0.55 + Math.sin(currentTime * 0.00022) * 0.05;
+      blackHoleMaterial.uniforms.uDiskScreenTilt.value = Math.max(
+        0.22,
+        baseDiskScreenTilt + Math.abs(cameraPitch) * 0.2 + Math.sin(currentTime * 0.0003 + flightSwirl) * 0.02
+      );
+
+      const orbitScale = 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
+      const cameraOrbitRadius = Math.max(72, cameraDistance * (0.09 * orbitScale));
+      const cameraOffsetX = Math.sin(cameraYaw) * cameraOrbitRadius;
+      const cameraOffsetY = Math.sin(cameraPitch) * cameraOrbitRadius * 0.5;
+      const cameraOffsetZ = Math.cos(cameraYaw) * cameraOrbitRadius * 0.18;
+      camera.position.set(cameraOffsetX, floatY + cameraOffsetY, cameraDistance + cameraOffsetZ);
+      camera.lookAt(0, floatY, 0);
+      camera.rotation.z = cameraRoll;
+      blackHoleSky.position.copy(camera.position);
+      const cameraDelta = camera.position.distanceTo(previousCameraPosition);
+      previousCameraPosition.copy(camera.position);
+
+      deepStars.rotation.y += frameDeltaSeconds * (lowPowerMode ? 0.008 : 0.014);
+      deepStars.rotation.x += frameDeltaSeconds * (lowPowerMode ? 0.0016 : 0.0028);
+      deepStarMaterial.opacity = (lowPowerMode ? 0.5 : 0.62) + flightEnvelope * 0.18;
+
+      tunnelGroup.position.copy(camera.position);
+      tunnelGroup.quaternion.copy(camera.quaternion);
+      const tunnelAttr = tunnelGeometry.getAttribute('position');
+      const tunnelArray = tunnelAttr.array as Float32Array;
+      const speedFromCamera = Math.min(5.5, cameraDelta / 9);
+      const flightSpeedBoost = 1 + speedFromCamera + flightEnvelope * (lowPowerMode ? 5 : 8.5);
+      const tunnelBaseSpeed = lowPowerMode ? 260 : 380;
+      const tunnelSpeed = tunnelBaseSpeed * flightSpeedBoost;
+      for (let i = 0; i < tunnelStarCount; i++) {
+        const idx = i * 3;
+        tunnelArray[idx + 2] += frameDeltaSeconds * tunnelSpeed * tunnelSpeeds[i];
+        if (tunnelArray[idx + 2] > 110) {
+          const radius = Math.sqrt(Math.random()) * tunnelRadius;
+          const angle = Math.random() * Math.PI * 2;
+          tunnelArray[idx] = Math.cos(angle) * radius;
+          tunnelArray[idx + 1] = Math.sin(angle) * radius * (0.55 + Math.random() * 0.5);
+          tunnelArray[idx + 2] = -tunnelDepth * (0.9 + Math.random() * 0.4);
+        }
+      }
+      tunnelAttr.needsUpdate = true;
+      tunnelMaterial.size = (lowPowerMode ? 2.5 : 3.2) + flightEnvelope * (lowPowerMode ? 1.1 : 1.9);
+      tunnelMaterial.opacity = Math.min(0.92, (lowPowerMode ? 0.5 : 0.6) + flightEnvelope * 0.28 + speedFromCamera * 0.05);
 
       let burst = 0;
       if (!prefersReducedMotion && rotationBurstRef.current.active) {
@@ -539,101 +604,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       });
       const wireScale = 1 + burst * 0.06;
       wireframe.scale.set(wireScale, wireScale, wireScale);
-
-      if (whaleActors.length > 0) {
-        const t = currentTime * 0.001;
-        let visibleWhales = 0;
-        const dampAngle = (from: number, to: number, factor: number) => {
-          const twoPi = Math.PI * 2;
-          let delta = (to - from + Math.PI) % twoPi;
-          if (delta < 0) delta += twoPi;
-          delta -= Math.PI;
-          return from + delta * factor;
-        };
-        const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-        whaleActors.forEach((actor) => {
-          const motion = t * actor.speed + actor.phase;
-          const orbit = motion * actor.direction;
-          let targetX = Math.cos(orbit) * actor.orbitX;
-          let targetY = actor.baseY + Math.sin(orbit * actor.bobSpeed) * actor.bobAmp;
-          let targetZ = actor.baseZ + Math.sin(orbit) * actor.zAmp;
-
-          if (actor.foregroundRunner) {
-            // Periodically push one whale close to (and slightly through) the camera for cinematic passes.
-            const passSignal = Math.sin(t * (lowPowerMode ? 0.23 : 0.29) + actor.phase * 0.9);
-            const passAmount = clamp((passSignal - 0.72) / 0.28, 0, 1);
-            if (passAmount > 0) {
-              const passZ = camera.position.z + (lowPowerMode ? 24 : 80);
-              targetX = targetX * (1 - passAmount * 0.85);
-              targetY = targetY * (1 - passAmount * 0.9);
-              targetZ = targetZ * (1 - passAmount) + passZ * passAmount;
-            }
-          }
-
-          actor.group.position.x += (targetX - actor.group.position.x) * 0.08;
-          actor.group.position.y += (targetY - actor.group.position.y) * 0.08;
-          actor.group.position.z += (targetZ - actor.group.position.z) * 0.06;
-
-          const orbitNext = (motion + actor.speed * 0.75) * actor.direction;
-          let nextX = Math.cos(orbitNext) * actor.orbitX;
-          let nextY = actor.baseY + Math.sin(orbitNext * actor.bobSpeed) * actor.bobAmp;
-          let nextZ = actor.baseZ + Math.sin(orbitNext) * actor.zAmp;
-
-          if (actor.foregroundRunner) {
-            const nextPassSignal = Math.sin((t + actor.speed * 0.6) * (lowPowerMode ? 0.23 : 0.29) + actor.phase * 0.9);
-            const nextPassAmount = clamp((nextPassSignal - 0.72) / 0.28, 0, 1);
-            if (nextPassAmount > 0) {
-              const passZ = camera.position.z + (lowPowerMode ? 24 : 80);
-              nextX = nextX * (1 - nextPassAmount * 0.85);
-              nextY = nextY * (1 - nextPassAmount * 0.9);
-              nextZ = nextZ * (1 - nextPassAmount) + passZ * nextPassAmount;
-            }
-          }
-
-          const forwardX = nextX - targetX;
-          const forwardY = nextY - targetY;
-          const forwardZ = nextZ - targetZ;
-          const horizontalSpeed = Math.hypot(forwardX, forwardZ);
-
-          const heading = horizontalSpeed > 0.0001 ? Math.atan2(forwardZ, forwardX) + actor.headingOffset : actor.yawCurrent;
-          const yawTarget = heading + Math.sin(motion * 0.4 + actor.phase) * actor.yawAmp;
-          actor.yawCurrent = dampAngle(actor.yawCurrent, yawTarget, 0.08);
-          actor.group.rotation.y = actor.yawCurrent;
-
-          const pitchFromPath = horizontalSpeed > 0.0001 ? -Math.atan2(forwardY, horizontalSpeed) : 0;
-          const pitchTarget = clamp(pitchFromPath + Math.sin(motion * 0.45 + actor.phase) * 0.014, -0.09, 0.09);
-          const rollTarget = clamp(Math.sin(orbit * 1.12 + actor.phase) * actor.rollAmp, -0.05, 0.05);
-          actor.pitchCurrent += (pitchTarget - actor.pitchCurrent) * 0.12;
-          actor.rollCurrent += (rollTarget - actor.rollCurrent) * 0.12;
-          actor.group.rotation.x = actor.pitchCurrent;
-          actor.group.rotation.z = actor.rollCurrent;
-
-          if (actor.points && actor.basePositions) {
-            const attr = actor.points.geometry.getAttribute('position');
-            const positions = attr.array as Float32Array;
-            const base = actor.basePositions;
-            for (let i = 1; i < positions.length; i += 3) {
-              positions[i] =
-                base[i] + 0.48 * Math.cos(base[i - 1] * 0.05 + base[i + 1] * 0.03 + t * actor.waveSpeed + actor.phase);
-            }
-            attr.needsUpdate = true;
-          }
-
-          if (actor.group.position.z > -cubeSize * 0.35 && actor.group.position.z < cubeSize * 0.9) {
-            visibleWhales += 1;
-          }
-        });
-
-        logEventThrottled('scene.whale.frame', 1200, 'scene.whale.frame.update', {
-          actors: whaleActors.length,
-          visibleWhales,
-        });
-        logEventThrottled('scene.render.visibility', 2200, 'scene.render.visibility', {
-          visibleWhales,
-          totalWhales: whaleActors.length,
-        });
-      }
 
       cssRenderer.render(scene, camera);
       webglRenderer.render(webglScene, camera);
@@ -664,7 +634,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
     return () => {
       logRuntime('info', 'scene3d', 'Scene cleanup started');
-      sceneDisposed = true;
       cancelAnimationFrame(animationId);
       startAnimationRef.current = null;
       window.removeEventListener('resize', handleResize);
@@ -683,9 +652,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       webglRenderer.dispose();
       blackHoleGeometry.dispose();
       blackHoleMaterial.dispose();
-      whaleGeometries.forEach((geometry) => geometry.dispose());
-      whaleMaterials.forEach((material) => material.dispose());
-      whaleTextures.forEach((texture) => texture.dispose());
+      spaceGeometries.forEach((geometry) => geometry.dispose());
+      spaceMaterials.forEach((material) => material.dispose());
       cubeGeometry.dispose();
       edges.dispose();
       lineMaterial.dispose();

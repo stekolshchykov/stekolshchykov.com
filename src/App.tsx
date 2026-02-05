@@ -108,11 +108,12 @@ export default function App() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (isMobile) return;
     const cleanupAudioAutoStart = installAudioAutoStart();
     return () => {
       cleanupAudioAutoStart();
     };
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     return () => {
@@ -145,7 +146,9 @@ export default function App() {
 
   const applyPressedDirection = (direction: Direction) => {
     setPressedDirection(direction);
-    playButtonSound();
+    if (!isMobile) {
+      playButtonSound();
+    }
     if (pressedTimerRef.current) {
       window.clearTimeout(pressedTimerRef.current);
     }
@@ -173,7 +176,7 @@ export default function App() {
       logEvent('navigation.input.click', { direction: trigger.direction, to: faceId });
       applyPressedDirection(trigger.direction);
     }
-    if (current !== faceId) {
+    if (!isMobile && current !== faceId) {
       playRotationSound();
     }
     setActiveFace(faceId);
@@ -213,11 +216,6 @@ export default function App() {
           </Suspense>
 
           <header className="cube-header">
-            <div className="cube-header__titles">
-              <p className="cube-role">{t.personRole}</p>
-              <h1>{t.personName}</h1>
-            </div>
-
             <div className="lang-switcher" aria-label={t.language}>
               {LOCALES.map((lang) => (
                 <UILangButton key={lang} active={lang === locale} onClick={() => switchLocale(lang)}>
