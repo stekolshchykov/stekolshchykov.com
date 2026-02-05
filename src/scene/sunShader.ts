@@ -186,35 +186,53 @@ export const SUN_FRAGMENT_SHADER = \`
     // Realistic limb darkening scale
     float limbScale = eddingtonLD(ndv);
 
-    vec3 noisePos = vLocalPos * (4.8 * uSurfaceNoiseScale) + vec3(0.0, uTime * 0.08, uTime * 0.04);
-    float convection = fbm(noisePos);
+    // Phase 2 #9: Multi-Scale Granulation
+    vec3 noisePosSuper = vLocalPos * (1.2 * uSurfaceNoiseScale) + vec3(uTime * 0.02, -uTime * 0.01, uTime * 0.015);
+    vec3 noisePosGran = vLocalPos * (4.8 * uSurfaceNoiseScale) + vec3(0.0, uTime * 0.08, uTime * 0.04);
     
-    // Multi-scale granulation enhancement (pre-Phase 2 hint)
-    float granules = smoothstep(0.44, 0.9, convection);
+    float superGran = fbm(noisePosSuper);
+    float convection = fbm(noisePosGran + superGran * 0.22);
+    
+    // Mix supergranules and granules for realistic convection pattern
+    float granulation = smoothstep(0.4, 0.9, convection) * (0.85 + superGran * 0.15);
 
     float filaments = abs(sin((vLocalPos.y * 35.0 + convection * 8.0) + uTime * 1.9));
     filaments = pow(filaments, 3.2);
 
+    // Phase 2 #10: Realistic Sunspots (Umbra + Penumbra)
     float sunspotsNoise = fbm(vLocalPos * 11.0 + vec3(uTime * 0.03, -uTime * 0.02, 0.0));
-    float sunspots = smoothstep(0.78, 0.98, sunspotsNoise);
-    sunspots *= 0.75 + 0.25 * sin(uTime * 9.0 + vLocalPos.x * 30.0);
+    float umbra = smoothstep(0.88, 0.95, sunspotsNoise);
+    float penumbra = smoothstep(0.78, 0.88, sunspotsNoise);
+    
+    // Animate sunspots subtly
+    float spotAnim = 0.75 + 0.25 * sin(uTime * 9.0 + vLocalPos.x * 30.0);
+    float totalSunspot = (umbra + penumbra * 0.45) * spotAnim;
 
     // Realistic color blending with limb darkening
-    vec3 base = mix(uColorC, uColorB, granules);
-    base = mix(base, uColorA, smoothstep(0.52, 1.0, granules + filaments * 0.24));
+    vec3 base = mix(uColorC, uColorB, granulation);
+    base = mix(base, uColorA, smoothstep(0.52, 1.0, granulation + filaments * 0.24));
+    
+    // Apply filaments and sunspots
     base *= mix(0.76, 1.2, filaments);
-    base = mix(base, base * 0.32, sunspots * 0.38);
+    base = mix(base, base * 0.18, umbra * 0.8 * spotAnim); // Umbra is very dark
+    base = mix(base, base * 0.45, penumbra * (1.0 - umbra) * 0.6 * spotAnim); // Penumbra is mid-dark
 
-    // Enhanced edge glow simulating chromosphere hint
+    // Phase 2 #13: Chromosphere layer hint (reddish edge)
+    float chromoFresnel = pow(1.0 - ndv, 4.2);
+    vec3 hAlphaCore = vec3(1.0, 0.28, 0.12); // Realistic H-alpha (656nm) color
+    
     float edgeGlow = pow(1.0 - ndv, 2.45) * (0.55 + 0.45 * filaments) * uCoronaStrength;
-    vec3 hAlphaCore = vec3(1.0, 0.4, 0.2); // Reddish H-alpha hint
-    vec3 glow = mix(vec3(1.0, 0.62, 0.2), hAlphaCore, pow(1.0 - ndv, 2.0)) * edgeGlow * 0.9;
+    vec3 glow = mix(vec3(1.0, 0.62, 0.2), hAlphaCore, chromoFresnel) * edgeGlow * 0.9;
 
-    float erupt = smoothstep(0.82, 1.0, granules + filaments * 0.2);
+    float erupt = smoothstep(0.82, 1.0, granulation + filaments * 0.2);
     vec3 eruptColor = vec3(1.0, 0.74, 0.35) * erupt * 0.55;
 
     // Final color with physical limb darkening
     vec3 color = base * limbScale * 1.34 + glow + eruptColor;
+    
+    // Add chromosphere glow on the absolute edge
+    color += hAlphaCore * pow(1.0 - ndv, 12.0) * uCoronaStrength * 1.5;
+    
     color *= 1.08 + vNoise * 0.12;
 
     gl_FragColor = vec4(color, 1.0);
