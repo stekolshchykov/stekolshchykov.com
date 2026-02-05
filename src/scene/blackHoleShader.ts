@@ -44,7 +44,7 @@ export const BLACK_HOLE_VERTEX_SHADER = `
 `;
 
 export const BLACK_HOLE_FRAGMENT_SHADER = `
-  precision highp float;
+
 
   uniform float uTime;
   uniform vec2 uResolution;
