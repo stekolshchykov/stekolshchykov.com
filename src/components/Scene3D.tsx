@@ -20,9 +20,11 @@ interface Scene3DProps {
   targetRotation: { x: number; y: number };
   locale: Locale;
   onReady?: () => void;
+  isGameMode?: boolean;
+  joystickInput?: { x: number; y: number };
 }
 
-export function Scene3D({ targetRotation, locale, onReady }: Scene3DProps) {
+export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, joystickInput = { x: 0, y: 0 } }: Scene3DProps) {
   // --- Constants & Config ---
   const containerRef = useRef<HTMLDivElement>(null);
   const webglContainerRef = useRef<HTMLDivElement>(null);
@@ -249,11 +251,29 @@ export function Scene3D({ targetRotation, locale, onReady }: Scene3DProps) {
       // 1. Update Physics / Camera Controls
       updatePhysics(lowPowerMode, deltaSeconds);
 
-      // 2. Float Animation
+      // 2. Float Animation & Game Mode Cube Visibility
       const floatY = Math.sin(currentTime * 0.00035) * floatAmplitude;
       if (cubeRefs.current) {
-        cubeRefs.current.cubeGroup.position.y = floatY;
-        cubeRefs.current.wireframe.position.y = floatY;
+        // Hide cube in game mode
+        cubeRefs.current.cubeGroup.visible = !isGameMode;
+        cubeRefs.current.wireframe.visible = !isGameMode;
+
+        if (!isGameMode) {
+          cubeRefs.current.cubeGroup.position.y = floatY;
+          cubeRefs.current.wireframe.position.y = floatY;
+        }
+      }
+
+      // 2b. Joystick-based free flight in game mode (super fast - reach sun in ~10 sec)
+      if (isGameMode && cameraRef.current) {
+        const cam = cameraRef.current;
+        const speed = 90; // Very fast movement (sun is at ~880 units away)
+        const jx = joystickInput.x;
+        const jy = joystickInput.y;
+
+        // Move camera based on joystick input
+        cam.position.x += jx * speed;
+        cam.position.z += jy * speed;
       }
 
       // 3. Cinematic Flight & Camera Position

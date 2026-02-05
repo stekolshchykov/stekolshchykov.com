@@ -64,6 +64,8 @@ export default function App() {
   const [isSceneReady, setIsSceneReady] = useState(false);
   const [showLoader, setShowLoader] = useState(true);
   const [isLoaderLeaving, setIsLoaderLeaving] = useState(false);
+  const [isGameMode, setIsGameMode] = useState(false);
+  const [joystickInput, setJoystickInput] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const pulseTimerRef = useRef<number | null>(null);
   const pressedTimerRef = useRef<number | null>(null);
   const bootStartRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -263,7 +265,13 @@ export default function App() {
       ) : (
         <div className="cube-app">
           <Suspense fallback={<div className="scene-fallback" />}>
-            <Scene3D targetRotation={FACE_ROTATIONS[activeFace]} locale={locale} onReady={handleSceneReady} />
+            <Scene3D
+              targetRotation={FACE_ROTATIONS[activeFace]}
+              locale={locale}
+              onReady={handleSceneReady}
+              isGameMode={isGameMode}
+              joystickInput={joystickInput}
+            />
           </Suspense>
 
           <header className="cube-header">
@@ -273,6 +281,13 @@ export default function App() {
                   {lang.toUpperCase()}
                 </UILangButton>
               ))}
+              <button
+                className={`game-mode-btn ${isGameMode ? 'active' : ''}`}
+                onClick={() => setIsGameMode(!isGameMode)}
+                aria-label={isGameMode ? 'Exit Game Mode' : 'Enter Game Mode'}
+              >
+                {isGameMode ? '✕' : '🎮'}
+              </button>
             </div>
           </header>
 
@@ -284,50 +299,84 @@ export default function App() {
 
           <nav className="desktop-nav" aria-label="Cube navigation">
             <div className="keyboard-deck">
-              <div className="arrow-cluster menu-roll-in">
-                <UIKeyButton
-                  className="key-up"
-                  code={FACE_CODES[NAV_BY_FACE[activeFace].up]}
-                  direction="up"
-                  label={faceLabels[NAV_BY_FACE[activeFace].up]}
-                  pressed={pressedDirection === 'up'}
-                  ariaKeyShortcuts="ArrowUp W"
-                  onClick={() => changeFace(NAV_BY_FACE[activeFace].up, true, { source: 'click', direction: 'up' })}
-                />
-
-                <div className="arrow-row">
-                  <UIKeyButton
-                    className="key-left"
-                    code={FACE_CODES[NAV_BY_FACE[activeFace].left]}
-                    direction="left"
-                    label={faceLabels[NAV_BY_FACE[activeFace].left]}
-                    pressed={pressedDirection === 'left'}
-                    ariaKeyShortcuts="ArrowLeft A"
-                    onClick={() => changeFace(NAV_BY_FACE[activeFace].left, true, { source: 'click', direction: 'left' })}
-                  />
-
-                  <UIKeyButton
-                    className="key-down"
-                    active
-                    code={FACE_CODES[NAV_BY_FACE[activeFace].down]}
-                    direction="down"
-                    label={faceLabels[NAV_BY_FACE[activeFace].down]}
-                    pressed={pressedDirection === 'down'}
-                    ariaKeyShortcuts="ArrowDown S"
-                    onClick={() => changeFace(NAV_BY_FACE[activeFace].down, true, { source: 'click', direction: 'down' })}
-                  />
-
-                  <UIKeyButton
-                    className="key-right"
-                    code={FACE_CODES[NAV_BY_FACE[activeFace].right]}
-                    direction="right"
-                    label={faceLabels[NAV_BY_FACE[activeFace].right]}
-                    pressed={pressedDirection === 'right'}
-                    ariaKeyShortcuts="ArrowRight D"
-                    onClick={() => changeFace(NAV_BY_FACE[activeFace].right, true, { source: 'click', direction: 'right' })}
-                  />
+              {isGameMode ? (
+                <div className="joystick-container menu-roll-in">
+                  <div
+                    className="joystick-pad"
+                    onMouseDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const updateJoystick = (ev: MouseEvent) => {
+                        const x = ((ev.clientX - rect.left) / rect.width - 0.5) * 2;
+                        const y = ((ev.clientY - rect.top) / rect.height - 0.5) * 2;
+                        setJoystickInput({ x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) });
+                      };
+                      updateJoystick(e.nativeEvent as MouseEvent);
+                      const handleMove = (ev: MouseEvent) => updateJoystick(ev);
+                      const handleUp = () => {
+                        setJoystickInput({ x: 0, y: 0 });
+                        window.removeEventListener('mousemove', handleMove);
+                        window.removeEventListener('mouseup', handleUp);
+                      };
+                      window.addEventListener('mousemove', handleMove);
+                      window.addEventListener('mouseup', handleUp);
+                    }}
+                    aria-label="Flight joystick"
+                  >
+                    <div
+                      className="joystick-knob"
+                      style={{
+                        transform: `translate(${joystickInput.x * 40}px, ${joystickInput.y * 40}px)`
+                      }}
+                    />
+                  </div>
+                  <span className="joystick-label">🚀 FLY</span>
                 </div>
-              </div>
+              ) : (
+                <div className="arrow-cluster menu-roll-in">
+                  <UIKeyButton
+                    className="key-up"
+                    code={FACE_CODES[NAV_BY_FACE[activeFace].up]}
+                    direction="up"
+                    label={faceLabels[NAV_BY_FACE[activeFace].up]}
+                    pressed={pressedDirection === 'up'}
+                    ariaKeyShortcuts="ArrowUp W"
+                    onClick={() => changeFace(NAV_BY_FACE[activeFace].up, true, { source: 'click', direction: 'up' })}
+                  />
+
+                  <div className="arrow-row">
+                    <UIKeyButton
+                      className="key-left"
+                      code={FACE_CODES[NAV_BY_FACE[activeFace].left]}
+                      direction="left"
+                      label={faceLabels[NAV_BY_FACE[activeFace].left]}
+                      pressed={pressedDirection === 'left'}
+                      ariaKeyShortcuts="ArrowLeft A"
+                      onClick={() => changeFace(NAV_BY_FACE[activeFace].left, true, { source: 'click', direction: 'left' })}
+                    />
+
+                    <UIKeyButton
+                      className="key-down"
+                      active
+                      code={FACE_CODES[NAV_BY_FACE[activeFace].down]}
+                      direction="down"
+                      label={faceLabels[NAV_BY_FACE[activeFace].down]}
+                      pressed={pressedDirection === 'down'}
+                      ariaKeyShortcuts="ArrowDown S"
+                      onClick={() => changeFace(NAV_BY_FACE[activeFace].down, true, { source: 'click', direction: 'down' })}
+                    />
+
+                    <UIKeyButton
+                      className="key-right"
+                      code={FACE_CODES[NAV_BY_FACE[activeFace].right]}
+                      direction="right"
+                      label={faceLabels[NAV_BY_FACE[activeFace].right]}
+                      pressed={pressedDirection === 'right'}
+                      ariaKeyShortcuts="ArrowRight D"
+                      onClick={() => changeFace(NAV_BY_FACE[activeFace].right, true, { source: 'click', direction: 'right' })}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </nav>
         </div>
