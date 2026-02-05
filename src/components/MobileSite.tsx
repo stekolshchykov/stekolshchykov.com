@@ -283,6 +283,7 @@ export function MobileSite({ locale, locales, activeFace, onFaceChange, onLocale
                 @{githubUsername}
               </UILink>
 
+              {/* Widgets temporarily disabled due to service unavailability (503)
               <img
                 className="github-widget"
                 src={`https://github-readme-stats.vercel.app/api?username=${githubUsername}&show_icons=true&rank_icon=github&hide_border=true&bg_color=00000000&title_color=8cc7ff&text_color=c8dfff&icon_color=5da8ff`}
@@ -301,6 +302,7 @@ export function MobileSite({ locale, locales, activeFace, onFaceChange, onLocale
                 alt="GitHub activity graph"
                 loading="lazy"
               />
+              */}
             </div>
           </section>
         )}

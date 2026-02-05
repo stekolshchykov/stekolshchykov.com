@@ -10,6 +10,7 @@ export type LogEventName =
   | 'scene.whale.frame.update'
   | 'scene.whale.fallback.enabled'
   | 'scene.blackhole.shader.ready'
+  | 'scene.starfield.ready'
   | 'scene.performance.mode'
   | 'scene.render.visibility';
 
@@ -202,9 +203,23 @@ export function installGlobalErrorLogging() {
     clearRuntimeLogs,
     downloadRuntimeLogs,
     setRuntimeLoggingEnabled,
+    help: () => {
+      console.group('Logger Help');
+      console.info('getRuntimeLogs() - Returns all stored logs');
+      console.info('clearRuntimeLogs() - Clears all stored logs');
+      console.info('downloadRuntimeLogs() - Downloads logs as JSON');
+      console.info('setRuntimeLoggingEnabled(bool) - Enable/disable logging');
+      console.groupEnd();
+    }
   };
 
-  logRuntime('info', 'logger', 'Runtime logger initialized', {
-    existingCount: logs.length,
-  });
+  if (isEnabled()) {
+    console.log(
+      '%c 3D CV %c Logger Active. Type %c__APP_LOGGER__.help()%c for options.',
+      'background: #3b82f6; color: white; padding: 2px 4px; border-radius: 2px;',
+      'color: #9ca3af',
+      'color: #3b82f6; font-weight: bold;',
+      'color: #9ca3af'
+    );
+  }
 }

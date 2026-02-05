@@ -1,24 +1,18 @@
-import { lazy, Suspense, useEffect, useRef, type ComponentType } from 'react';
-import { AdditiveBlending, BackSide, BoxGeometry, BufferGeometry, Color, EdgesGeometry, Float32BufferAttribute, Group, LineBasicMaterial, LineSegments, Material, Mesh, PerspectiveCamera, Points, PointsMaterial, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLRenderer, WireframeGeometry } from 'three';
-import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
-import { createRoot } from 'react-dom/client';
+import { useEffect, useRef } from 'react';
+import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Material, Mesh, PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Scene, ShaderMaterial, Vector3, WebGLRenderer, Matrix4 } from 'three';
+import { CSS3DRenderer } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
+import { createCubeStructure } from './scene/CubeStructure';
 import type { Locale } from '../content/stekolschikovContent';
 import { logEvent, logRuntime } from '../observability/logger';
 import { BLACK_HOLE_FRAGMENT_SHADER, BLACK_HOLE_VERTEX_SHADER, createBlackHoleUniforms } from '../scene/blackHoleShader';
 
-const AboutFace = lazy(() => import('./faces/AboutFace').then((m) => ({ default: m.AboutFace })));
-const SkillsFace = lazy(() => import('./faces/SkillsFace').then((m) => ({ default: m.SkillsFace })));
-const ProjectsFace = lazy(() => import('./faces/ProjectsFace').then((m) => ({ default: m.ProjectsFace })));
-const ExperienceFace = lazy(() => import('./faces/ExperienceFace').then((m) => ({ default: m.ExperienceFace })));
-const ContactFace = lazy(() => import('./faces/ContactFace').then((m) => ({ default: m.ContactFace })));
-const EducationFace = lazy(() => import('./faces/EducationFace').then((m) => ({ default: m.EducationFace })));
+// USER REQUEST: Toggle for Cube Visibility
+const SHOW_CUBE = true; // Set to true to re-enable the cube
 
 interface Scene3DProps {
   targetRotation: { x: number; y: number };
   locale: Locale;
 }
-
-type CubeFaceComponent = ComponentType<{ locale: Locale }>;
 
 export function Scene3D({ targetRotation, locale }: Scene3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,7 +127,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const camera = new PerspectiveCamera(50, viewportWidth / viewportHeight, 1, 5000);
     camera.position.z = isPhone ? 1250 : isTablet ? 1400 : 1500;
     const defaultCameraDistance = camera.position.z;
-    const previousCameraPosition = new Vector3(camera.position.x, camera.position.y, camera.position.z);
     let userCameraDistance = defaultCameraDistance;
     let cameraDistance = userCameraDistance;
 
@@ -148,7 +141,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     webglContainerRef.current.appendChild(webglRenderer.domElement);
 
     const blackHoleUniforms = createBlackHoleUniforms(lowPowerMode, viewportWidth, viewportHeight);
-    const blackHoleGeometry = new SphereGeometry(4200, lowPowerMode ? 22 : 32, lowPowerMode ? 14 : 24);
+    const blackHoleGeometry = new PlaneGeometry(2, 2);
     const blackHoleMaterial = new ShaderMaterial({
       uniforms: blackHoleUniforms,
       vertexShader: BLACK_HOLE_VERTEX_SHADER,
@@ -157,9 +150,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       depthWrite: false,
       depthTest: false,
     });
-    const baseBlackHoleYaw = blackHoleUniforms.uCameraYaw.value;
-    const baseBlackHolePitch = blackHoleUniforms.uCameraPitch.value;
-    const defaultShaderDistance = blackHoleUniforms.uCameraDistance.value;
+    const baseBlackHoleYaw = 0;
+    const baseBlackHolePitch = 0;
     const blackHoleSky = new Mesh(blackHoleGeometry, blackHoleMaterial);
     blackHoleSky.frustumCulled = false;
     blackHoleSky.renderOrder = -1000;
@@ -216,134 +208,103 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     // Floating particles (formerly tunnel stars)
     const particleCount = lowPowerMode ? 1400 : 3200;
     const particleRange = lowPowerMode ? 1800 : 2600;
+
+    const particleVertexShader = `
+      attribute float size;
+      uniform float uSizeMultiplier;
+      attribute vec3 color;
+      varying vec3 vColor;
+      varying float vDist;
+      void main() {
+        vColor = color;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        float dist = length(mvPosition.xyz);
+        vDist = dist;
+        // Increase size for stars closer to camera
+        gl_PointSize = size * uSizeMultiplier * (400.0 / dist) * (1.0 + smoothstep(500.0, 0.0, dist));
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const particleFragmentShader = `
+      varying vec3 vColor;
+      varying float vDist;
+      void main() {
+        float d = length(gl_PointCoord - vec2(0.5));
+        if (d > 0.5) discard;
+        // Sharper core for near stars, softer for far
+        float softness = mix(0.1, 0.4, smoothstep(0.0, 1000.0, vDist));
+        float glow = pow(clamp(1.0 - d / softness, 0.0, 1.0), 2.0);
+        gl_FragColor = vec4(vColor, glow * 0.9);
+      }
+    `;
+
     const particlePositions = new Float32Array(particleCount * 3);
     const particleColors = new Float32Array(particleCount * 3);
+    const particleSizes = new Float32Array(particleCount);
     const particleVelocities = new Float32Array(particleCount * 3);
 
     for (let i = 0; i < particleCount; i++) {
       const idx = i * 3;
-      // Random spread in a box around camera (will wrap)
       particlePositions[idx] = (Math.random() - 0.5) * particleRange * 2;
       particlePositions[idx + 1] = (Math.random() - 0.5) * particleRange * 2;
       particlePositions[idx + 2] = (Math.random() - 0.5) * particleRange * 2;
 
-      const pColor = new Color().setHSL(0.6 + Math.random() * 0.15, 0.4 + Math.random() * 0.4, 0.7 + Math.random() * 0.3);
+      const pColor = new Color().setHSL(0.6 + Math.random() * 0.15, 0.4 + Math.random() * 0.4, 0.8 + Math.random() * 0.2);
       particleColors[idx] = pColor.r;
       particleColors[idx + 1] = pColor.g;
       particleColors[idx + 2] = pColor.b;
 
-      // Gentle random drift
-      particleVelocities[idx] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8);
-      particleVelocities[idx + 1] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8);
-      particleVelocities[idx + 2] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8) + (Math.random() * 1.5); // Slight forward bias
+      particleSizes[i] = (lowPowerMode ? 1.5 : 2.5) * (0.5 + Math.random());
+
+      particleVelocities[idx] = (Math.random() - 0.5) * (lowPowerMode ? 0.3 : 0.6);
+      particleVelocities[idx + 1] = (Math.random() - 0.5) * (lowPowerMode ? 0.3 : 0.6);
+      particleVelocities[idx + 2] = (Math.random() - 0.5) * (lowPowerMode ? 0.3 : 0.6) + (Math.random() * 1.5);
     }
 
     const particleGeometry = new BufferGeometry();
     particleGeometry.setAttribute('position', new Float32BufferAttribute(particlePositions, 3));
     particleGeometry.setAttribute('color', new Float32BufferAttribute(particleColors, 3));
+    particleGeometry.setAttribute('size', new Float32BufferAttribute(particleSizes, 1));
     spaceGeometries.push(particleGeometry);
-    const particleMaterial = new PointsMaterial({
-      size: lowPowerMode ? 1.8 : 2.4,
+
+    const particleMaterial = new ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uSizeMultiplier: { value: 1.0 },
+      },
+      vertexShader: particleVertexShader,
+      fragmentShader: particleFragmentShader,
       transparent: true,
-      opacity: lowPowerMode ? 0.45 : 0.6,
-      depthWrite: false,
       blending: AdditiveBlending,
-      vertexColors: true,
+      depthWrite: false,
     });
     spaceMaterials.push(particleMaterial);
+
     const floatingParticles = new Points(particleGeometry, particleMaterial);
     floatingParticles.frustumCulled = false;
-    // Note: NOT adding to a group that copies camera rotation. 
-    // We add directly to scene, but will manipulate position in loop to follow camera.
-
-    // Instead of a separate group, let's keep them in a group for position following, 
-    // but WE WILL NOT COPY ROTATION.
     const particleGroup = new Group();
     particleGroup.add(floatingParticles);
     webglScene.add(particleGroup);
 
     logEvent('scene.starfield.ready', { deepStars: deepStarCount, particles: particleCount, lowPowerMode });
 
-    const cubeGeometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
-    const edges = new EdgesGeometry(cubeGeometry);
-    const lineMaterial = new LineBasicMaterial({
-      color: 0x8b5cf6,
-      transparent: true,
-      opacity: 0.3,
-    });
-    const wireframe = new LineSegments(edges, lineMaterial);
-    webglScene.add(wireframe);
-
-    const cubeGroup = new Group();
-    const faceActors: Array<{
-      object: CSS3DObject;
-      basePosition: [number, number, number];
-      baseRotation: [number, number, number];
-      normal: [number, number, number];
-      phase: number;
-    }> = [];
-
-    const faces: Array<{
-      component: CubeFaceComponent;
-      color: string;
-      position: [number, number, number];
-      rotation: [number, number, number];
-    }> = [
-        { component: AboutFace as CubeFaceComponent, color: '#8b5cf6', position: [0, 0, faceDepth], rotation: [0, 0, 0] },
-        { component: SkillsFace as CubeFaceComponent, color: '#3b82f6', position: [0, 0, -faceDepth], rotation: [0, Math.PI, 0] },
-        { component: ProjectsFace as CubeFaceComponent, color: '#10b981', position: [faceDepth, 0, 0], rotation: [0, Math.PI / 2, 0] },
-        { component: ExperienceFace as CubeFaceComponent, color: '#ef4444', position: [-faceDepth, 0, 0], rotation: [0, -Math.PI / 2, 0] },
-        { component: ContactFace as CubeFaceComponent, color: '#f97316', position: [0, faceDepth, 0], rotation: [-Math.PI / 2, 0, 0] },
-        { component: EducationFace as CubeFaceComponent, color: '#06b6d4', position: [0, -faceDepth, 0], rotation: [Math.PI / 2, 0, 0] },
-      ];
-
-    const roots: ReturnType<typeof createRoot>[] = [];
-    faces.forEach((face, index) => {
-      const element = document.createElement('div');
-      element.className = 'cube-face-shell';
-      element.style.width = `${faceSize}px`;
-      element.style.height = `${faceSize}px`;
-      element.style.padding = `${facePadding}px`;
-      element.style.background = `linear-gradient(135deg, rgba(8, 15, 26, ${faceAlpha}) 0%, rgba(13, 22, 35, ${Math.max(0.55, faceAlpha - 0.1)}) 100%)`;
-      element.style.border = `3px solid ${face.color}`;
-      element.style.borderRadius = isPhone ? '16px' : '24px';
-      element.style.boxShadow = `0 0 42px ${face.color}30, inset 0 0 30px ${face.color}08`;
-      element.style.overflow = 'hidden';
-      element.style.contain = 'layout style paint';
-      element.style.willChange = 'transform';
-      if (!lowPowerMode) {
-        element.style.backdropFilter = 'blur(2px)';
-      }
-
-      const scrollHost = document.createElement('div');
-      scrollHost.className = 'cube-face-scroll';
-      element.appendChild(scrollHost);
-
-      const FaceComponent = face.component;
-      const root = createRoot(scrollHost);
-      root.render(
-        <Suspense fallback={<div style={{ color: '#cbd5e1', padding: '1rem' }}>Loading...</div>}>
-          <FaceComponent locale={locale} />
-        </Suspense>
-      );
-      roots.push(root);
-
-      const object = new CSS3DObject(element);
-      object.position.set(face.position[0], face.position[1], face.position[2]);
-      object.rotation.set(face.rotation[0], face.rotation[1], face.rotation[2]);
-
-      cubeGroup.add(object);
-      const length = Math.hypot(face.position[0], face.position[1], face.position[2]) || 1;
-      faceActors.push({
-        object,
-        basePosition: [face.position[0], face.position[1], face.position[2]],
-        baseRotation: [face.rotation[0], face.rotation[1], face.rotation[2]],
-        normal: [face.position[0] / length, face.position[1] / length, face.position[2] / length],
-        phase: index * 1.37,
-      });
+    const { cubeGroup, wireframe, faceActors, dispose: disposeCube } = createCubeStructure({
+      locale,
+      faceSize,
+      facePadding,
+      faceAlpha,
+      faceDepth,
+      cubeSize,
+      isPhone: isPhone || false,
+      lowPowerMode,
     });
 
-    scene.add(cubeGroup);
+    if (SHOW_CUBE) {
+      webglScene.add(wireframe);
+      scene.add(cubeGroup);
+    }
+
 
     let isDragging = false;
     let previousMousePosition = { x: 0, y: 0 };
@@ -456,34 +417,26 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       let flightShaderYaw = 0;
       let flightShaderPitch = 0;
       cameraDistance = userCameraDistance;
-      const shaderZoomScale = userCameraDistance / defaultCameraDistance;
-      const shaderBaseDistance = defaultShaderDistance * shaderZoomScale;
-      blackHoleMaterial.uniforms.uCameraDistance.value = shaderBaseDistance;
+      // Majestic distance: The hole is a distant background feature, not a close-up trap
+      const shaderBaseDistance = 45.0 + (userCameraDistance / defaultCameraDistance) * 15.0;
+      // Static black hole distance (handled in main loop)
+
       if (!prefersReducedMotion && cameraFlightRef.current.active) {
         const flight = cameraFlightRef.current;
         if (!flight.shotReady) {
           flight.startCameraDistance = userCameraDistance;
           if (flight.distanceMode === 'close') {
             flight.targetCameraDistance = Math.max(minZoom * 0.52, 420);
-            flight.targetShaderDistance = Math.max(
-              lowPowerMode ? 4.2 : 2.6,
-              shaderBaseDistance * (lowPowerMode ? 0.28 : 0.18)
-            );
+            flight.targetShaderDistance = Math.max(15.0, shaderBaseDistance * 0.35);
           } else if (flight.distanceMode === 'near') {
             flight.targetCameraDistance = Math.max(minZoom * 0.72, minZoom - 180);
-            flight.targetShaderDistance = Math.max(
-              lowPowerMode ? 7 : 4.8,
-              shaderBaseDistance * (lowPowerMode ? 0.46 : 0.36)
-            );
+            flight.targetShaderDistance = Math.max(22.0, shaderBaseDistance * 0.55);
           } else {
             flight.targetCameraDistance = Math.min(
               maxZoom * 0.82,
               minZoom + (maxZoom - minZoom) * 0.42 + Math.random() * 80
             );
-            flight.targetShaderDistance = Math.min(
-              lowPowerMode ? 30 : 42,
-              shaderBaseDistance * (lowPowerMode ? 1.34 : 1.52)
-            );
+            flight.targetShaderDistance = Math.min(55.0, shaderBaseDistance * 1.5);
           }
           flight.startShaderDistance = shaderBaseDistance;
           flight.shotReady = true;
@@ -501,7 +454,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         const progress = (currentTime - flight.startMs) / durationMs;
         if (progress >= 1) {
           cameraDistance = userCameraDistance;
-          blackHoleMaterial.uniforms.uCameraDistance.value = shaderBaseDistance;
+          // Handled in main loop
+
           cameraFlightRef.current.active = false;
         } else {
           const eased = progress < 0.5
@@ -527,12 +481,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
                 : minZoom;
             cameraDistance = Math.max(minDynamicZoom, Math.min(maxZoom, shotDistance));
 
-            const shaderDistance =
-              flight.startShaderDistance + (flight.targetShaderDistance - flight.startShaderDistance) * distancePulse;
-            blackHoleMaterial.uniforms.uCameraDistance.value = shaderDistance;
-
-            flightOffsetX = flight.offsetX * envelope;
-            flightOffsetY = flight.offsetY * envelope;
             flightShaderYaw = flight.shaderYawBias * envelope;
             flightShaderPitch = flight.shaderPitchBias * envelope;
           }
@@ -549,16 +497,33 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       wireframe.rotation.y = currentRotationRef.current.y + cubeTiltY * 1.06;
       wireframe.rotation.z = cubeTiltZ * 1.1;
 
-      blackHoleMaterial.uniforms.uCameraYaw.value =
-        baseBlackHoleYaw - cameraYaw * 1.9 - cubeTiltY * 0.55 + flightShaderYaw;
-      blackHoleMaterial.uniforms.uCameraPitch.value =
-        baseBlackHolePitch + cameraPitch * 1.55 - cubeTiltX * 0.42 + flightShaderPitch;
+      // Stabilized rotation: The BH stays more centered, but tilts slightly for 3D effect
+      // Rotation handled in robust world basis loop below
+
+      baseBlackHoleYaw - cameraYaw * 0.5 - cubeTiltY * 0.2 + flightShaderYaw;
+      // Pitch handled in robust world basis loop below
+
+      baseBlackHolePitch + cameraPitch * 0.4 - cubeTiltX * 0.15 + flightShaderPitch;
 
       // NEW: Static black hole (no wobbling offset), camera moves around it.
       // We removed uBlackHoleOffset, so we don't update it.
 
       // Animate time and noise scales for the accretion disk
-      blackHoleMaterial.uniforms.uTimeScale.value = 0.2 + flightEnvelope * 0.3; // Speed up during flight
+      // Update Black Hole Shader uniforms with real-world camera state
+      // Update Black Hole Shader uniforms with real-world camera state
+      if (blackHoleMaterial.uniforms.uCameraInverseViewMatrix) {
+        blackHoleMaterial.uniforms.uTime.value = currentTime * 0.001;
+
+        // SCALE FIX: The Three.js scene is huge (1500 units), but the shader physics (Rs=2.0)
+        // expects a distance of ~45.0. We scale the position by 0.03 to match.
+        blackHoleMaterial.uniforms.uCameraWorldPos.value.copy(camera.position).multiplyScalar(0.03);
+
+        // Pass inverse view matrix for robust ray generation
+        camera.updateMatrixWorld();
+        blackHoleMaterial.uniforms.uCameraInverseViewMatrix.value.copy(camera.matrixWorld);
+      }
+
+
 
       // Doppler/Lensing dynamic adjustments based on flight speed/angle could go here
       // but for now we keep them stable for physical accuracy.
@@ -604,7 +569,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         if (pArray[idx + 2] < -range) pArray[idx + 2] += range * 2;
       }
       pAttr.needsUpdate = true;
-      particleMaterial.size = (lowPowerMode ? 1.8 : 2.4) + flightEnvelope * (lowPowerMode ? 0.5 : 0.8);
+      particleMaterial.uniforms.uSizeMultiplier.value = (lowPowerMode ? 1.8 : 2.4) + flightEnvelope * (lowPowerMode ? 0.5 : 0.8);
       particleMaterial.opacity = Math.min(0.85, (lowPowerMode ? 0.45 : 0.6) + flightEnvelope * 0.2);
 
       let burst = 0;
@@ -684,10 +649,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       blackHoleMaterial.dispose();
       spaceGeometries.forEach((geometry) => geometry.dispose());
       spaceMaterials.forEach((material) => material.dispose());
-      cubeGeometry.dispose();
-      edges.dispose();
-      lineMaterial.dispose();
-      roots.forEach((root) => root.unmount());
+      spaceGeometries.forEach((geometry) => geometry.dispose());
+      spaceMaterials.forEach((material) => material.dispose());
+      disposeCube();
       logRuntime('info', 'scene3d', 'Scene cleanup completed');
     };
   }, [locale]);

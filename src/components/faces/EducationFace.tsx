@@ -1,5 +1,5 @@
 import type { Locale } from '../../content/stekolschikovContent';
-import { githubProfileUrl, githubUsername, uiTexts } from '../../content/stekolschikovContent';
+import { githubProfileUrl, githubUsername, uiTexts, workItems } from '../../content/stekolschikovContent';
 import { UILink, UIPage, UIPill, UITitle } from '../../ui-kit';
 
 interface EducationFaceProps {
@@ -19,24 +19,14 @@ export function EducationFace({ locale }: EducationFaceProps) {
           @{githubUsername}
         </UILink>
 
-        <img
-          className="github-widget"
-          src={`https://github-readme-stats.vercel.app/api?username=${githubUsername}&show_icons=true&rank_icon=github&hide_border=true&bg_color=00000000&title_color=8cc7ff&text_color=c8dfff&icon_color=5da8ff`}
-          alt="GitHub stats widget"
-          loading="lazy"
-        />
-        <img
-          className="github-widget"
-          src={`https://streak-stats.demolab.com?user=${githubUsername}&theme=transparent&hide_border=true&ring=8cc7ff&fire=8cc7ff&currStreakLabel=8cc7ff&dates=c8dfff&sideNums=c8dfff&currStreakNum=e6eefc`}
-          alt="GitHub streak widget"
-          loading="lazy"
-        />
-        <img
-          className="github-widget github-widget--graph"
-          src={`https://github-readme-activity-graph.vercel.app/graph?username=${githubUsername}&bg_color=0b1220&color=9ec3ef&line=5da8ff&point=9ec3ef&area=true&hide_border=true`}
-          alt="GitHub activity graph"
-          loading="lazy"
-        />
+        <div className="work-grid">
+          {workItems.map((item) => (
+            <a key={item.title} href={item.url} target="_blank" rel="noreferrer noopener" className="work-card">
+              <span className="work-card__title">{item.title}</span>
+              <span className="work-card__arrow">→</span>
+            </a>
+          ))}
+        </div>
       </div>
     </UIPage>
   );
