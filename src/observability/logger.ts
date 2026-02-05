@@ -12,7 +12,8 @@ export type LogEventName =
   | 'scene.blackhole.shader.ready'
   | 'scene.starfield.ready'
   | 'scene.performance.mode'
-  | 'scene.render.visibility';
+  | 'scene.render.visibility'
+  | 'scene.cube.created';
 
 export interface RuntimeLogEntry {
   ts: string;
