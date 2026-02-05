@@ -50,8 +50,8 @@ interface OrbitPlanet {
 
 type BlackHoleVariant = 'cinematic' | 'physics' | 'hybrid';
 
-const SUN_POSITION = new Vector3(440, 220, -520);
-const BLACK_HOLE_POSITION = new Vector3(-560, -140, -680);
+const SUN_POSITION = new Vector3(350, 220, -650);
+const BLACK_HOLE_POSITION = new Vector3(-450, -70, -720);
 
 const AURA_VERTEX_SHADER = `
 varying vec3 vNormal;
@@ -627,7 +627,7 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: new Color('#ffd7a1') },
-        uIntensity: { value: lowPowerMode ? 0.05 : 0.1 },
+        uIntensity: { value: lowPowerMode ? 0.025 : 0.05 },
       },
       vertexShader: GOD_RAYS_VERTEX_SHADER,
       fragmentShader: GOD_RAYS_FRAGMENT_SHADER,
@@ -659,11 +659,11 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
     }
     const flareTex = new CanvasTexture(mainFlareCanvas);
 
-    lensflare.addElement(new LensflareElement(flareTex, 80, 0, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 20, 0.6, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 12, 0.7, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 28, 0.9, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 16, 1.0, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 40, 0, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 10, 0.6, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 6, 0.7, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 14, 0.9, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 8, 1.0, flareColor));
 
     lensflare.position.copy(sunMesh.position);
     if (!lowPowerMode) {
@@ -673,7 +673,7 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
 
     const sunLight = new PointLight(
       new Color('#ffd7a1'),
-      lowPowerMode ? 1.8 : 2.5,
+      lowPowerMode ? 0.9 : 1.25,
       lowPowerMode ? 3400 : 4800,
       1.5
     );

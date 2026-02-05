@@ -58,12 +58,12 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
     const deepSizes = new Float32Array(deepStarCount);
     const deepTwinkles = new Float32Array(deepStarCount);
     const palette = [
-      new Color(0x9bbdff),
-      new Color(0xf9f6ff),
-      new Color(0xffd8a2),
-      new Color(0xc7f0ff),
-      new Color(0xffb7d8),
-      new Color(0xb0ffe4),
+      new Color(0x8899aa), // Dim cool white
+      new Color(0xcccccc), // Pure white, dimmed
+      new Color(0xd4a06a), // Warm orange
+      new Color(0x99aabb), // Very dim blue-white
+      new Color(0xbb8899), // Dim pink
+      new Color(0x88aa99), // Dim green-white
     ];
 
     for (let i = 0; i < deepStarCount; i += 1) {
@@ -77,7 +77,7 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
       deepPositions[i3 + 2] = radius * Math.cos(phi);
 
       const baseColor = palette[(Math.random() * palette.length) | 0].clone();
-      baseColor.multiplyScalar(0.48 + Math.random() * 0.72);
+      baseColor.multiplyScalar(0.25 + Math.random() * 0.35); // Much dimmer (was 0.48 + 0.72)
       deepColors[i3] = baseColor.r;
       deepColors[i3 + 1] = baseColor.g;
       deepColors[i3 + 2] = baseColor.b;
@@ -167,7 +167,7 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
       particlePositions[i3 + 2] = (Math.random() - 0.5) * particleRange * 2;
 
       const pColor = palette[(Math.random() * palette.length) | 0].clone();
-      pColor.multiplyScalar(0.52 + Math.random() * 0.66);
+      pColor.multiplyScalar(0.28 + Math.random() * 0.35); // Much dimmer (was 0.52 + 0.66)
       particleColors[i3] = pColor.r;
       particleColors[i3 + 1] = pColor.g;
       particleColors[i3 + 2] = pColor.b;
