@@ -20,8 +20,8 @@ export function EducationFace({ locale }: EducationFaceProps) {
         </UILink>
 
         <div className="work-grid">
-          {workItems.map((item) => (
-            <a key={item.title} href={item.url} target="_blank" rel="noreferrer noopener" className="work-card">
+          {workItems.map((item, index) => (
+            <a key={`${item.title}-${index}`} href={item.url} target="_blank" rel="noreferrer noopener" className="work-card">
               <span className="work-card__title">{item.title}</span>
               <span className="work-card__arrow">→</span>
             </a>

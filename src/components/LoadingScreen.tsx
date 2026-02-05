@@ -1,25 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+interface LoadingScreenProps {
+  leaving?: boolean;
+  label?: string;
+}
 
-export function LoadingScreen() {
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (!isLoading) return null;
-
+export function LoadingScreen({ leaving = false, label = 'Loading experience...' }: LoadingScreenProps) {
   return (
-    <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
-      <div className="text-center">
-        <Loader2 className="w-16 h-16 text-purple-500 animate-spin mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-white mb-2">Loading Portfolio</h2>
-        <p className="text-purple-300">Initializing 3D space...</p>
+    <div className={`app-loader${leaving ? ' is-leaving' : ''}`} role="status" aria-live="polite" aria-label={label}>
+      <div className="app-loader__inner">
+        <div className="app-loader__orbital" aria-hidden="true">
+          <span className="app-loader__aura" />
+          <span className="app-loader__core" />
+          <span className="app-loader__ring app-loader__ring--outer" />
+          <span className="app-loader__ring app-loader__ring--inner" />
+          <span className="app-loader__satellite app-loader__satellite--a" />
+          <span className="app-loader__satellite app-loader__satellite--b" />
+          <span className="app-loader__satellite app-loader__satellite--c" />
+        </div>
+        <p className="app-loader__text">{label}</p>
+        <p className="app-loader__subtitle">3D Cube Portfolio</p>
       </div>
     </div>
   );

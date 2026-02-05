@@ -22,6 +22,15 @@ export function useCameraControls({
     const userCameraDistanceRef = useRef(defaultCameraDistance);
     const isDraggingRef = useRef(false);
     const previousMousePositionRef = useRef({ x: 0, y: 0 });
+    const previousRotationRef = useRef({ x: 0, y: 0 });
+    const lastTargetRef = useRef({ x: 0, y: 0 });
+    const transitionRef = useRef({
+        active: false,
+        elapsed: 0,
+        duration: 3.6,
+        from: { x: 0, y: 0 },
+        to: { x: 0, y: 0 },
+    });
 
     useEffect(() => {
         const element = interactionTargetRef.current;
@@ -40,8 +49,13 @@ export function useCameraControls({
                 const deltaX = e.clientX - previousMousePositionRef.current.x;
                 const deltaY = e.clientY - previousMousePositionRef.current.y;
 
-                velocityRef.current.y = deltaX * 0.005;
-                velocityRef.current.x = deltaY * 0.005;
+                const dragSensitivity = 0.0032;
+                const nextVelocityY = deltaX * dragSensitivity;
+                const nextVelocityX = deltaY * dragSensitivity;
+
+                // Smooth input to avoid jitter from uneven pointer events.
+                velocityRef.current.y = velocityRef.current.y * 0.7 + nextVelocityY * 0.3;
+                velocityRef.current.x = velocityRef.current.x * 0.7 + nextVelocityX * 0.3;
 
                 previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
                 startAnimation();
@@ -77,27 +91,74 @@ export function useCameraControls({
         };
     }, [interactionTargetRef, minZoom, maxZoom, startAnimation]);
 
-    const updatePhysics = (lowPowerMode: boolean) => {
-        if (!isDraggingRef.current) {
-            // Apply Velocity
+    const updatePhysics = (lowPowerMode: boolean, deltaSeconds = 1 / 60) => {
+        const safeDelta = Math.min(0.05, Math.max(1 / 240, deltaSeconds));
+
+        const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+        const shortestAngleDelta = (from: number, to: number) =>
+            Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
+        if (isDraggingRef.current) {
             currentRotationRef.current.x += velocityRef.current.x;
             currentRotationRef.current.y += velocityRef.current.y;
+            targetRotationRef.current = { ...currentRotationRef.current };
+            transitionRef.current.active = false;
+            transitionRef.current.elapsed = 0;
+            lastTargetRef.current = { ...targetRotationRef.current };
+        } else {
+            const target = targetRotationRef.current;
+            const lastTarget = lastTargetRef.current;
+            const deltaTargetX = target.x - lastTarget.x;
+            const deltaTargetY = shortestAngleDelta(lastTarget.y, target.y);
+            const targetChanged = Math.abs(deltaTargetX) > 0.0008 || Math.abs(deltaTargetY) > 0.0008;
 
-            // Apply Target Lerp
-            const dx = targetRotationRef.current.x - currentRotationRef.current.x;
-            const dy = targetRotationRef.current.y - currentRotationRef.current.y;
-            const rotationLerp = lowPowerMode ? 0.075 : 0.06;
+            if (targetChanged) {
+                const travel = Math.hypot(deltaTargetX, deltaTargetY);
+                const duration = Math.min(5, Math.max(3, 2.8 + travel * 1.0));
+                transitionRef.current = {
+                    active: true,
+                    elapsed: 0,
+                    duration,
+                    from: { ...currentRotationRef.current },
+                    to: { x: target.x, y: target.y },
+                };
+                lastTargetRef.current = { ...target };
+            }
 
-            currentRotationRef.current.x += dx * rotationLerp;
-            currentRotationRef.current.y += dy * rotationLerp;
+            if (transitionRef.current.active) {
+                transitionRef.current.elapsed += safeDelta;
+                const progress = Math.min(1, transitionRef.current.elapsed / transitionRef.current.duration);
+                const eased = easeOutCubic(progress);
+                const from = transitionRef.current.from;
+                const to = transitionRef.current.to;
+                const dy = shortestAngleDelta(from.y, to.y);
 
-            // Decaying velocity
-            velocityRef.current.x *= 0.95;
-            velocityRef.current.y *= 0.95;
+                currentRotationRef.current.x = from.x + (to.x - from.x) * eased;
+                currentRotationRef.current.y = from.y + dy * eased;
+
+                if (progress >= 1) {
+                    transitionRef.current.active = false;
+                    currentRotationRef.current.x = to.x;
+                    currentRotationRef.current.y = to.y;
+                }
+            } else {
+                // Subtle settle to target to avoid micro-jitter.
+                const snap = lowPowerMode ? 0.08 : 0.12;
+                const dx = target.x - currentRotationRef.current.x;
+                const dy = shortestAngleDelta(currentRotationRef.current.y, target.y);
+                currentRotationRef.current.x += dx * snap;
+                currentRotationRef.current.y += dy * snap;
+            }
         }
 
-        // Clamp Pitch
         currentRotationRef.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, currentRotationRef.current.x));
+
+        const prev = previousRotationRef.current;
+        const dx = currentRotationRef.current.x - prev.x;
+        const dy = currentRotationRef.current.y - prev.y;
+        velocityRef.current.x = dx;
+        velocityRef.current.y = dy;
+        previousRotationRef.current = { x: currentRotationRef.current.x, y: currentRotationRef.current.y };
     };
 
     return {

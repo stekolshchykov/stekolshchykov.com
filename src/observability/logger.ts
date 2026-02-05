@@ -13,7 +13,8 @@ export type LogEventName =
   | 'scene.starfield.ready'
   | 'scene.performance.mode'
   | 'scene.render.visibility'
-  | 'scene.cube.created';
+  | 'scene.cube.created'
+  | 'scene.celestial.ready';
 
 export interface RuntimeLogEntry {
   ts: string;

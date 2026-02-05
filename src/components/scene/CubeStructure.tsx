@@ -52,9 +52,9 @@ export function createCubeStructure(config: CubeStructureConfig) {
     const cubeGeometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
     const edges = new EdgesGeometry(cubeGeometry);
     const lineMaterial = new LineBasicMaterial({
-        color: 0x8b5cf6,
+        color: 0x5da8ff,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.24,
     });
     const wireframe = new LineSegments(edges, lineMaterial);
     // Note: wireframe is returned separately so it can be added to WebGL scene if needed,

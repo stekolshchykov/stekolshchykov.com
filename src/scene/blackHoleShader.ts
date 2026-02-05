@@ -4,23 +4,25 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
   return {
     uTime: { value: 0 },
     uResolution: { value: new Vector2(width, height) },
-    uCameraWorldPos: { value: new Vector3(0, 0, 45) },
-    uCameraInverseViewMatrix: { value: new Matrix4() }, // Added for robust ray direction
+    uCameraWorldPos: { value: new Vector3(0, 0, 30) },
+    uCameraInverseViewMatrix: { value: new Matrix4() },
 
-    // Physics Parameters
-    uSchwarzschildRadius: { value: 7.0 }, // Increased from 2.0 to make it visible
-    uAccretionInner: { value: 9.0 },      // Adjusted for larger radius
-    uAccretionOuter: { value: 32.0 },     // Adjusted for larger radius
+    // Physics Parameters - scaled for camera distance
+    // Camera is at ~1500 world units, scaled by 0.02 = ~30 shader units
+    // Accretion disk should be visible from this distance
+    uSchwarzschildRadius: { value: 4.0 },
+    uAccretionInner: { value: 6.0 },
+    uAccretionOuter: { value: 25.0 },
 
     // Rendering Params
-    uDiskDensity: { value: lowPowerMode ? 0.8 : 1.2 },
-    uDiskNoiseScale: { value: 1.8 },
-    uDopplerStrength: { value: 1.2 },     // Relativistic beaming strength
-    uLensingStrength: { value: 1.0 },
+    uDiskDensity: { value: lowPowerMode ? 1.0 : 1.5 },
+    uDiskNoiseScale: { value: 1.5 },
+    uDopplerStrength: { value: 1.0 },
+    uLensingStrength: { value: 0.8 },
 
     // Starfield Integration
-    uStarDensity: { value: 0.12 },
-    uStarBrightness: { value: 2.5 },
+    uStarDensity: { value: 0.15 },
+    uStarBrightness: { value: 3.0 },
   };
 }
 
@@ -137,13 +139,25 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
             
             // Temperature Gradient
             float temp = 1.0 - (diskR - uAccretionInner) / (uAccretionOuter - uAccretionInner);
-            vec3 emission = mix(vec3(1.0, 0.1, 0.0), vec3(0.2, 0.5, 1.0), temp * 1.5 + density * 0.5);
             
-            // Relativistic Beaming (Doppler)
-            // Matter moves roughly perpendicular to radius in XZ plane
+            // Phase 1 #27: Accretion Rate Variability
+            float accretionRate = 1.0 + 0.35 * sin(time * 0.8 + diskR * 0.4);
+            
+            vec3 emission = mix(vec3(1.0, 0.1, 0.0), vec3(0.2, 0.5, 1.0), temp * 1.5 + density * 0.5);
+            emission *= accretionRate;
+            
+            // Phase 1 #24: Relativistic Beaming (Doppler) Enhancement
+            // Better relativistic approximation for disk velocity
+            float beta = 0.5; // Roughly half speed of light for mid-disk (simplified)
             vec3 vel = normalize(vec3(-pos.z, 0.0, pos.x)); 
-            float doppler = dot(vel, rayDir); // -1 to 1
-            float beam = pow(1.5 + doppler * uDopplerStrength, 2.0);
+            float cosPhi = dot(vel, -rayDir); // Angle between velocity and observer
+            
+            // Relativistic Doppler Factor D = 1 / (gamma * (1 - beta * cosPhi))
+            float gamma = 1.0 / sqrt(1.0 - beta * beta);
+            float dopplerD = 1.0 / (gamma * (1.0 - beta * cosPhi));
+            
+            // Emission scales by D^3 (beaming)
+            float beam = pow(dopplerD, 3.0) * uDopplerStrength;
             
             float sampleDensity = density * verticalFade * radialFade * 0.2 * uDiskDensity;
             accumColor += emission * beam * sampleDensity * (1.0 - accumDensity);

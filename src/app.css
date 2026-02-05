@@ -26,6 +26,249 @@
   background: #060b14;
 }
 
+.app-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  --loader-size: clamp(84px, 18vmin, 160px);
+  --core-size: clamp(14px, 3.2vmin, 26px);
+  --ring-stroke: clamp(2px, 0.34vmin, 3px);
+  --satellite-size: clamp(6px, 1.2vmin, 11px);
+  display: grid;
+  place-items: center;
+  padding:
+    max(18px, env(safe-area-inset-top))
+    max(18px, env(safe-area-inset-right))
+    max(18px, env(safe-area-inset-bottom))
+    max(18px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 18% 22%, rgba(86, 171, 255, 0.19), transparent 38%),
+    radial-gradient(circle at 84% 72%, rgba(39, 108, 201, 0.2), transparent 45%),
+    linear-gradient(160deg, #040911 0%, #07111f 52%, #0b182c 100%);
+  overflow: hidden;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 240ms ease, visibility 240ms ease;
+}
+
+.app-loader::before {
+  content: '';
+  position: absolute;
+  width: min(74vmin, 480px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 170, 255, 0.42), rgba(35, 83, 142, 0) 72%);
+  filter: blur(20px);
+  opacity: 0.6;
+  animation: loader-nebula-drift 5600ms ease-in-out infinite alternate;
+}
+
+.app-loader::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 18% 26%, rgba(224, 241, 255, 0.48), transparent),
+    radial-gradient(1px 1px at 32% 74%, rgba(202, 232, 255, 0.34), transparent),
+    radial-gradient(1px 1px at 68% 22%, rgba(224, 241, 255, 0.44), transparent),
+    radial-gradient(1px 1px at 84% 58%, rgba(202, 232, 255, 0.3), transparent);
+}
+
+.app-loader.is-leaving {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-loader__inner {
+  position: relative;
+  z-index: 1;
+  width: min(94vw, 440px);
+  display: grid;
+  justify-items: center;
+  gap: clamp(8px, 1.6vmin, 16px);
+}
+
+.app-loader__orbital {
+  position: relative;
+  width: var(--loader-size);
+  height: var(--loader-size);
+}
+
+.app-loader__aura {
+  position: absolute;
+  inset: calc(var(--loader-size) * 0.09);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(116, 186, 255, 0.24), rgba(64, 126, 206, 0) 74%);
+  filter: blur(7px);
+  animation: loader-aura-pulse 1200ms ease-in-out infinite alternate;
+}
+
+.app-loader__core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--core-size);
+  height: var(--core-size);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 30% 30%, #d8eeff 0%, #62bcff 55%, #2f78d5 100%);
+  box-shadow:
+    0 0 26px rgba(84, 168, 255, 0.8),
+    0 0 56px rgba(36, 120, 211, 0.46);
+  animation: loader-core-pulse 940ms ease-in-out infinite alternate;
+}
+
+.app-loader__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: var(--ring-stroke) solid rgba(133, 188, 255, 0.3);
+}
+
+.app-loader__ring--outer {
+  animation: loader-ring-spin 980ms linear infinite;
+}
+
+.app-loader__ring--inner {
+  inset: calc(var(--loader-size) * 0.12);
+  border-color: rgba(69, 151, 255, 0.54);
+  animation: loader-ring-spin-reverse 1280ms linear infinite;
+}
+
+.app-loader__satellite {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--satellite-size);
+  height: var(--satellite-size);
+  margin-left: calc(var(--satellite-size) * -0.5);
+  margin-top: calc(var(--satellite-size) * -0.5);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f3fbff 0%, #7bc2ff 58%, #2f78d5 100%);
+  box-shadow: 0 0 12px rgba(123, 194, 255, 0.72);
+}
+
+.app-loader__satellite--a {
+  animation: loader-orbit-a 1150ms linear infinite;
+}
+
+.app-loader__satellite--b {
+  animation: loader-orbit-b 1520ms linear infinite;
+}
+
+.app-loader__satellite--c {
+  animation: loader-orbit-c 1880ms linear infinite;
+}
+
+.app-loader__text {
+  margin: 0;
+  color: #e1f1ff;
+  font-size: clamp(0.78rem, 1.9vmin, 1rem);
+  font-weight: 700;
+  letter-spacing: clamp(0.08em, 0.25vw, 0.14em);
+  text-transform: uppercase;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.app-loader__subtitle {
+  margin: 0;
+  color: rgba(175, 203, 233, 0.78);
+  font-size: clamp(0.64rem, 1.55vmin, 0.78rem);
+  letter-spacing: clamp(0.14em, 0.35vw, 0.24em);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+@keyframes loader-nebula-drift {
+  from {
+    transform: translate(-10%, -4%) scale(0.92);
+  }
+  to {
+    transform: translate(8%, 6%) scale(1.08);
+  }
+}
+
+@keyframes loader-aura-pulse {
+  from {
+    opacity: 0.45;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 0.95;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes loader-core-pulse {
+  from {
+    transform: translate(-50%, -50%) scale(0.82);
+    opacity: 0.86;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1.16);
+    opacity: 1;
+  }
+}
+
+@keyframes loader-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes loader-ring-spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes loader-orbit-a {
+  from {
+    transform: rotate(0deg) translateX(calc(var(--loader-size) * 0.46));
+  }
+  to {
+    transform: rotate(360deg) translateX(calc(var(--loader-size) * 0.46));
+  }
+}
+
+@keyframes loader-orbit-b {
+  from {
+    transform: rotate(360deg) translateX(calc(var(--loader-size) * 0.36));
+  }
+  to {
+    transform: rotate(0deg) translateX(calc(var(--loader-size) * 0.36));
+  }
+}
+
+@keyframes loader-orbit-c {
+  from {
+    transform: rotate(0deg) translateX(calc(var(--loader-size) * 0.27));
+  }
+  to {
+    transform: rotate(360deg) translateX(calc(var(--loader-size) * 0.27));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-loader::before,
+  .app-loader__aura,
+  .app-loader__core,
+  .app-loader__ring--outer,
+  .app-loader__ring--inner,
+  .app-loader__satellite {
+    animation: none;
+  }
+}
+
 .cube-header {
   position: absolute;
   top: 14px;
@@ -421,13 +664,15 @@
 
 .key-label {
   display: block;
-  font-size: 0.52rem;
-  line-height: 1.15;
-  letter-spacing: 0.04em;
+  font-size: 0.48rem;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   text-align: center;
-  max-width: 84px;
-  overflow-wrap: break-word;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-shadow: 0 1px 0 rgba(236, 246, 255, 0.16);
 }
 
@@ -524,6 +769,61 @@
   background:
     linear-gradient(180deg, rgba(176, 225, 255, 0.98), rgba(95, 174, 255, 0.92)) padding-box,
     linear-gradient(180deg, rgba(218, 241, 255, 0.9), rgba(74, 140, 224, 0.78)) border-box;
+}
+
+.cube-face-shell {
+  position: relative;
+  isolation: isolate;
+  transition: filter 260ms ease, box-shadow 280ms ease, border-color 280ms ease, opacity 260ms ease;
+}
+
+.cube-face-shell::after {
+  content: '';
+  position: absolute;
+  inset: -14%;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.82);
+  mix-blend-mode: screen;
+  filter: blur(1px);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(226, 246, 255, 0.9) 0%,
+    rgba(142, 214, 255, 0.42) 34%,
+    rgba(95, 169, 255, 0.08) 58%,
+    rgba(95, 169, 255, 0) 78%
+  );
+}
+
+.cube-face-shell--active {
+  filter: brightness(1.14) saturate(1.12);
+  box-shadow:
+    0 0 76px rgba(137, 205, 255, 0.6),
+    inset 0 0 46px rgba(120, 196, 255, 0.32);
+}
+
+.cube-face-shell--flash::after {
+  animation: cube-face-activation-flash 720ms cubic-bezier(0.18, 0.82, 0.24, 1);
+}
+
+@keyframes cube-face-activation-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.78);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(0.98);
+  }
+  55% {
+    opacity: 0.62;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.24);
+  }
 }
 
 .cube-face-scroll {
@@ -1132,11 +1432,14 @@
 }
 
 .mobile-tab__text {
-  font-size: 0.63rem;
-  line-height: 1.2;
-  letter-spacing: 0.06em;
+  font-size: 0.58rem;
+  line-height: 1.1;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mobile-tab.is-active {

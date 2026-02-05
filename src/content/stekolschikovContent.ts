@@ -207,7 +207,7 @@ export const skillsRecent: SkillItem[] = [
     "level": 70
   },
   {
-    "name": "NPM",
+    "name": "NPM scripts",
     "level": 80
   },
   {

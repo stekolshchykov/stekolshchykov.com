@@ -2,6 +2,10 @@ class CubeSoundscape {
   private context: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private backgroundTrack: HTMLAudioElement | null = null;
+  private backgroundBuffer: AudioBuffer | null = null;
+  private backgroundSource: AudioBufferSourceNode | null = null;
+  private backgroundSourceGain: GainNode | null = null;
+  private backgroundLoadPromise: Promise<AudioBuffer | null> | null = null;
   private backgroundStarted = false;
   private autoStartInstalled = false;
   private autoStartCleanup: (() => void) | null = null;
@@ -23,6 +27,10 @@ class CubeSoundscape {
     this.context = context;
     this.masterGain = masterGain;
     return context;
+  }
+
+  private getBackgroundUrl(): string {
+    return `${import.meta.env.BASE_URL}assets/audio/space-rumble.mp3`;
   }
 
   installAutoStart(): () => void {
@@ -78,7 +86,7 @@ class CubeSoundscape {
     if (this.backgroundTrack) return this.backgroundTrack;
     if (typeof window === 'undefined') return null;
 
-    const audio = new Audio(`${import.meta.env.BASE_URL}assets/audio/space-rumble.mp3`);
+    const audio = new Audio(this.getBackgroundUrl());
     audio.preload = 'auto';
     audio.loop = true;
     audio.volume = 0.22;
@@ -86,8 +94,133 @@ class CubeSoundscape {
     return audio;
   }
 
+  private async loadBackgroundBuffer(): Promise<AudioBuffer | null> {
+    if (this.backgroundBuffer) return this.backgroundBuffer;
+    if (this.backgroundLoadPromise) return this.backgroundLoadPromise;
+
+    const context = this.context;
+    if (!context) return null;
+
+    this.backgroundLoadPromise = (async () => {
+      try {
+        const response = await fetch(this.getBackgroundUrl(), { cache: 'force-cache' });
+        if (!response.ok) return null;
+        const buffer = await response.arrayBuffer();
+        const decoded = await context.decodeAudioData(buffer.slice(0));
+        this.backgroundBuffer = decoded;
+        return decoded;
+      } catch {
+        return null;
+      } finally {
+        this.backgroundLoadPromise = null;
+      }
+    })();
+
+    return this.backgroundLoadPromise;
+  }
+
+  private detectLoopBounds(buffer: AudioBuffer): { start: number; end: number } {
+    const data = buffer.getChannelData(0);
+    const sampleRate = buffer.sampleRate;
+    const length = data.length;
+    const maxTrimSamples = Math.min(Math.floor(sampleRate * 5), Math.floor(length * 0.4));
+    const windowSize = Math.max(64, Math.floor(sampleRate * 0.015));
+    const threshold = 0.0016;
+
+    const windowEnergy = (start: number) => {
+      let sum = 0;
+      const end = Math.min(length, start + windowSize);
+      for (let i = start; i < end; i += 1) {
+        const sample = data[i];
+        sum += sample * sample;
+      }
+      const rms = Math.sqrt(sum / Math.max(1, end - start));
+      return rms;
+    };
+
+    let startSample = 0;
+    for (let i = 0; i < maxTrimSamples; i += Math.max(16, Math.floor(windowSize / 4))) {
+      if (windowEnergy(i) > threshold) {
+        startSample = i;
+        break;
+      }
+    }
+
+    let endSample = length - 1;
+    for (let i = length - 1; i > length - 1 - maxTrimSamples; i -= Math.max(16, Math.floor(windowSize / 4))) {
+      if (windowEnergy(Math.max(0, i - windowSize)) > threshold) {
+        endSample = i;
+        break;
+      }
+    }
+
+    const start = startSample / sampleRate;
+    const end = (endSample + 1) / sampleRate;
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end - start < 0.5) {
+      return { start: 0, end: buffer.duration };
+    }
+
+    const nudgedStart = Math.max(0, Math.min(start + 0.02, buffer.duration - 0.52));
+    const nudgedEnd = Math.max(nudgedStart + 0.5, Math.min(end - 0.02, buffer.duration));
+
+    return { start: nudgedStart, end: nudgedEnd };
+  }
+
+  private startBackgroundFromBuffer(buffer: AudioBuffer): boolean {
+    const context = this.context;
+    const master = this.masterGain;
+    if (!context || !master) return false;
+
+    if (this.backgroundSource) {
+      try {
+        this.backgroundSource.stop();
+      } catch {
+        // ignore stop race
+      }
+      this.backgroundSource = null;
+    }
+
+    const { start, end } = this.detectLoopBounds(buffer);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    if (end - start > 0.25) {
+      source.loopStart = start;
+      source.loopEnd = end;
+    }
+
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(1, context.currentTime + 0.34);
+
+    source.connect(gain);
+    gain.connect(master);
+
+    source.onended = () => {
+      if (this.backgroundSource === source) {
+        this.backgroundSource = null;
+        this.backgroundSourceGain = null;
+        this.backgroundStarted = false;
+      }
+    };
+
+    const offset = Math.min(Math.max(start, 0), Math.max(0, buffer.duration - 0.02));
+    source.start(context.currentTime + 0.01, offset);
+    this.backgroundSource = source;
+    this.backgroundSourceGain = gain;
+    this.backgroundStarted = true;
+    return true;
+  }
+
   private async startBackgroundMusic() {
     if (this.backgroundStarted) return;
+
+    const buffer = await this.loadBackgroundBuffer();
+    if (buffer && this.startBackgroundFromBuffer(buffer)) {
+      return;
+    }
+
     const track = this.getBackgroundTrack();
     if (!track) return;
     try {

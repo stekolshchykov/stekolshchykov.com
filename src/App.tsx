@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './app.css';
 import { type Locale, uiTexts } from './content/stekolschikovContent';
 import { MobileSite } from './components/MobileSite';
+import { LoadingScreen } from './components/LoadingScreen';
 import { SEOHead } from './components/SEOHead';
 import { FACE_CODES, FACE_ROTATIONS, getDirectionByKey, NAV_BY_FACE, type Direction, type FaceId } from './navigation';
 import { UIKeyButton, UILangButton } from './ui-kit';
@@ -10,8 +11,16 @@ import { installAudioAutoStart, playButtonSound, playRotationSound } from './aud
 
 const Scene3D = lazy(() => import('./components/Scene3D').then((m) => ({ default: m.Scene3D })));
 
-const MOBILE_BREAKPOINT = 900;
+const MOBILE_BREAKPOINT = 700;
+const BOOT_LOADER_MIN_MS = 220;
+const BOOT_LOADER_FADE_MS = 200;
+const BOOT_LOADER_MAX_MS = 2200;
 const LOCALES: Locale[] = ['ru', 'en', 'uk'];
+const LOADER_LABELS: Record<Locale, string> = {
+  ru: 'Запуск 3D-сцены...',
+  en: 'Launching 3D scene...',
+  uk: 'Запуск 3D-сцени...',
+};
 
 
 const STORAGE_LOCALE_KEY = 'stekolschikov-locale';
@@ -52,8 +61,12 @@ export default function App() {
   const [pulseText, setPulseText] = useState<string>('');
   const [pulseKey, setPulseKey] = useState(0);
   const [pressedDirection, setPressedDirection] = useState<Direction | null>(null);
+  const [isSceneReady, setIsSceneReady] = useState(false);
+  const [showLoader, setShowLoader] = useState(true);
+  const [isLoaderLeaving, setIsLoaderLeaving] = useState(false);
   const pulseTimerRef = useRef<number | null>(null);
   const pressedTimerRef = useRef<number | null>(null);
+  const bootStartRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   const t = uiTexts[locale];
 
@@ -124,6 +137,41 @@ export default function App() {
         window.clearTimeout(pressedTimerRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const appReady = isMobile || isSceneReady;
+    if (!appReady || !showLoader || isLoaderLeaving) return;
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed = now - bootStartRef.current;
+    const waitMs = Math.max(0, BOOT_LOADER_MIN_MS - elapsed);
+
+    const leaveTimer = window.setTimeout(() => setIsLoaderLeaving(true), waitMs);
+
+    return () => {
+      window.clearTimeout(leaveTimer);
+    };
+  }, [isMobile, isSceneReady, showLoader, isLoaderLeaving]);
+
+  useEffect(() => {
+    if (!showLoader || !isLoaderLeaving) return;
+    const removeTimer = window.setTimeout(() => setShowLoader(false), BOOT_LOADER_FADE_MS);
+    return () => {
+      window.clearTimeout(removeTimer);
+    };
+  }, [showLoader, isLoaderLeaving]);
+
+  useEffect(() => {
+    if (!showLoader || isLoaderLeaving) return;
+    const leaveTimer = window.setTimeout(() => setIsLoaderLeaving(true), BOOT_LOADER_MAX_MS);
+    return () => {
+      window.clearTimeout(leaveTimer);
+    };
+  }, [showLoader, isLoaderLeaving]);
+
+  const handleSceneReady = useCallback(() => {
+    setIsSceneReady(true);
   }, []);
 
   const triggerPulse = (label: string) => {
@@ -203,6 +251,7 @@ export default function App() {
   return (
     <>
       <SEOHead locale={locale} activeFace={activeFace} />
+      {showLoader ? <LoadingScreen leaving={isLoaderLeaving} label={LOADER_LABELS[locale]} /> : null}
       {isMobile ? (
         <MobileSite
           locale={locale}
@@ -214,7 +263,7 @@ export default function App() {
       ) : (
         <div className="cube-app">
           <Suspense fallback={<div className="scene-fallback" />}>
-            <Scene3D targetRotation={FACE_ROTATIONS[activeFace]} locale={locale} />
+            <Scene3D targetRotation={FACE_ROTATIONS[activeFace]} locale={locale} onReady={handleSceneReady} />
           </Suspense>
 
           <header className="cube-header">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, PerspectiveCamera, Scene, SRGBColorSpace, WebGLRenderer } from 'three';
 import { CSS3DRenderer } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { logRuntime } from '../../../observability/logger';
 
@@ -48,16 +48,43 @@ export function useSceneInit({
         containerRef.current.appendChild(cssRenderer.domElement);
         cssRendererRef.current = cssRenderer;
 
-        // Initialize WebGL Renderer
-        const webglRenderer = new WebGLRenderer({
-            antialias: false,
-            alpha: true,
-            powerPreference: 'high-performance',
-        });
-        webglRenderer.setSize(viewportWidth, viewportHeight);
-        webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
-        webglContainerRef.current.appendChild(webglRenderer.domElement);
-        webglRendererRef.current = webglRenderer;
+        // Initialize WebGL Renderer (optional fallback: CSS3D still works if WebGL is unavailable)
+        let webglRenderer: WebGLRenderer | null = null;
+        let onContextLost: ((event: Event) => void) | null = null;
+        let onContextRestored: (() => void) | null = null;
+        try {
+            webglRenderer = new WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance',
+            });
+            webglRenderer.setSize(viewportWidth, viewportHeight);
+            webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
+            webglRenderer.outputColorSpace = SRGBColorSpace;
+            webglRenderer.toneMapping = ACESFilmicToneMapping;
+            webglRenderer.toneMappingExposure = 1.08;
+            webglContainerRef.current.appendChild(webglRenderer.domElement);
+            webglRendererRef.current = webglRenderer;
+
+            const canvas = webglRenderer.domElement;
+            onContextLost = (event: Event) => {
+                event.preventDefault();
+                logRuntime('error', 'useSceneInit', 'WebGL context lost');
+            };
+            onContextRestored = () => {
+                if (!webglRenderer) return;
+                webglRenderer.setSize(window.innerWidth, window.innerHeight);
+                webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
+                logRuntime('info', 'useSceneInit', 'WebGL context restored');
+            };
+            canvas.addEventListener('webglcontextlost', onContextLost, false);
+            canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+        } catch (error) {
+            webglRendererRef.current = null;
+            logRuntime('error', 'useSceneInit', 'WebGL initialization failed, running CSS3D only', {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
 
         // Capture refs for cleanup closure
         const cssContainer = containerRef.current;
@@ -73,19 +100,25 @@ export function useSceneInit({
             if (cssContainer && cssRenderer.domElement.parentNode === cssContainer) {
                 cssContainer.removeChild(cssRenderer.domElement);
             }
-            if (webglContainer && webglRenderer.domElement.parentNode === webglContainer) {
+            if (webglRenderer && webglContainer && webglRenderer.domElement.parentNode === webglContainer) {
+                if (onContextLost) {
+                    webglRenderer.domElement.removeEventListener('webglcontextlost', onContextLost);
+                }
+                if (onContextRestored) {
+                    webglRenderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
+                }
                 webglContainer.removeChild(webglRenderer.domElement);
             }
 
             // Dispose Resources
-            webglRenderer.dispose();
+            webglRenderer?.dispose();
             logRuntime('info', 'useSceneInit', 'Scene resources disposed');
         };
     }, [pixelRatio, isPhone, isTablet, containerRef, webglContainerRef]);
 
     // Handle Resize
     useEffect(() => {
-        if (!initialized || !cameraRef.current || !cssRendererRef.current || !webglRendererRef.current) return;
+        if (!initialized || !cameraRef.current || !cssRendererRef.current) return;
 
         const handleResize = () => {
             const width = window.innerWidth;
@@ -95,14 +128,15 @@ export function useSceneInit({
             cameraRef.current!.updateProjectionMatrix();
 
             cssRendererRef.current!.setSize(width, height);
-            webglRendererRef.current!.setSize(width, height);
+            webglRendererRef.current?.setSize(width, height);
+            webglRendererRef.current?.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatio));
 
             logRuntime('info', 'useSceneInit', 'Scene resized', { width, height });
         };
 
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
-    }, [initialized]);
+    }, [initialized, pixelRatio]);
 
     return {
         sceneRef,

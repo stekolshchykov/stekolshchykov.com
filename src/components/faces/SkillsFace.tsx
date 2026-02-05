@@ -19,8 +19,8 @@ export function SkillsFace({ locale }: SkillsFaceProps) {
       <UIBlock>
         <h3>{source.skills_used_recently}</h3>
         <div className="skill-list">
-          {skillsRecent.map((skill) => (
-            <div key={`${skill.name}-${skill.level}`} className="skill-item">
+          {skillsRecent.map((skill, index) => (
+            <div key={`${skill.name}-${skill.level}-${index}`} className="skill-item">
               <div className="skill-item__head">
                 <span>{skill.name}</span>
                 <strong>{skill.level}%</strong>
@@ -36,8 +36,8 @@ export function SkillsFace({ locale }: SkillsFaceProps) {
       <UIBlock>
         <h3>{source.skills_used_before}</h3>
         <div className="skill-list">
-          {skillsBefore.map((skill) => (
-            <div key={`${skill.name}-${skill.level}`} className="skill-item is-soft">
+          {skillsBefore.map((skill, index) => (
+            <div key={`${skill.name}-${skill.level}-${index}`} className="skill-item is-soft">
               <div className="skill-item__head">
                 <span>{skill.name}</span>
                 <strong>{skill.level}%</strong>
