@@ -1,5 +1,3 @@
-import { Color, Vector3 } from 'three';
-
 // Uses a simple billboard-style or inverted sphere approach for glow
 export const SUN_CORONA_VERTEX_SHADER = `
 varying vec3 vNormal;

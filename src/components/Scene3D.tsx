@@ -592,11 +592,15 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         // We want to frame the Sun, but keep the Cube in peripheral or center?
         // Cinematic rule: Always keep at least one subject.
         // If we look at Sun (2000, 150, -500) from Camera (at Z=1500), we turn RIGHT.
-        const sunBias = new Vector3(800, 50, -200); // Look towards right side
+        // For mobile (isPhone), we must reduce horizontal bias to keep subject in narrow frame.
+        const sunBias = isPhone
+          ? new Vector3(300, 80, -300) // Less aggressive turn on mobile
+          : new Vector3(800, 50, -200); // Standard cinematic wide-turn
+
         const progress = (currentTime - cameraFlightRef.current.startMs) / (lowPowerMode ? cameraFlightRef.current.durationMs * 0.82 : cameraFlightRef.current.durationMs);
         const smoothProgress = Math.min(1, Math.max(0, canvasSmoothStep(progress)));
 
-        lookAtTarget.lerp(sunBias, smoothProgress * 0.85); // Strong pull towards sun
+        lookAtTarget.lerp(sunBias, smoothProgress * (isPhone ? 0.75 : 0.85)); // Slightly less pull on mobile
       } else {
         // When focusing on Black Hole (Center/Cube), ensure we really center it.
         // lookAt is already (0,y,0).
@@ -699,6 +703,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       wireframe.scale.set(wireScale, wireScale, wireScale);
 
       cssRenderer.render(scene, camera);
+      webglRenderer.render(webglScene, camera);
+      hasRenderedOnce = true;
     };
 
     const startAnimation = () => {
