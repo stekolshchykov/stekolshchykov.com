@@ -50,8 +50,8 @@ interface OrbitPlanet {
 
 type BlackHoleVariant = 'cinematic' | 'physics' | 'hybrid';
 
-const SUN_POSITION = new Vector3(350, 220, -650);
-const BLACK_HOLE_POSITION = new Vector3(-450, -70, -720);
+const SUN_POSITION = new Vector3(550, 220, -650);
+const BLACK_HOLE_POSITION = new Vector3(-650, -70, -720);
 
 const AURA_VERTEX_SHADER = `
 varying vec3 vNormal;
