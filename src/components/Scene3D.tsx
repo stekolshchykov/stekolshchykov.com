@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { createRoot } from 'react-dom/client';
-import { AboutFace } from './faces/AboutFace';
-import { SkillsFace } from './faces/SkillsFace';
-import { ProjectsFace } from './faces/ProjectsFace';
-import { ExperienceFace } from './faces/ExperienceFace';
-import { ContactFace } from './faces/ContactFace';
-import { EducationFace } from './faces/EducationFace';
+
+const AboutFace = lazy(() => import('./faces/AboutFace').then((m) => ({ default: m.AboutFace })));
+const SkillsFace = lazy(() => import('./faces/SkillsFace').then((m) => ({ default: m.SkillsFace })));
+const ProjectsFace = lazy(() => import('./faces/ProjectsFace').then((m) => ({ default: m.ProjectsFace })));
+const ExperienceFace = lazy(() => import('./faces/ExperienceFace').then((m) => ({ default: m.ExperienceFace })));
+const ContactFace = lazy(() => import('./faces/ContactFace').then((m) => ({ default: m.ContactFace })));
+const EducationFace = lazy(() => import('./faces/EducationFace').then((m) => ({ default: m.EducationFace })));
 
 interface Scene3DProps {
   targetRotation: { x: number; y: number };
@@ -18,9 +19,26 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
   const webglContainerRef = useRef<HTMLDivElement>(null);
   const currentRotationRef = useRef({ x: 0, y: 0 });
   const velocityRef = useRef({ x: 0, y: 0 });
+  const targetRotationRef = useRef(targetRotation);
+  const startAnimationRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    targetRotationRef.current = targetRotation;
+    startAnimationRef.current?.();
+  }, [targetRotation]);
 
   useEffect(() => {
     if (!containerRef.current || !webglContainerRef.current) return;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isCompactViewport = window.innerWidth < 900;
+    const isLowCoreCpu = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
+    const lowPowerMode = prefersReducedMotion || isCompactViewport || isLowCoreCpu;
+    const starCount = lowPowerMode ? 400 : 1600;
+    const sphereSegments = lowPowerMode ? 18 : 32;
+    const maxPixelRatio = lowPowerMode ? 1 : 1.25;
+    const targetFPS = lowPowerMode ? 24 : 60;
+    const floatAmplitude = lowPowerMode ? 8 : 20;
+    const lightCount = lowPowerMode ? 3 : 6;
 
     // CSS3D Scene
     const scene = new THREE.Scene();
@@ -40,38 +58,40 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
     const webglScene = new THREE.Scene();
     const webglRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
     webglRenderer.setSize(window.innerWidth, window.innerHeight);
-    webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
     webglContainerRef.current.appendChild(webglRenderer.domElement);
 
     // Optimized Black Hole
-    const blackHoleGeometry = new THREE.SphereGeometry(150, 32, 32);
-    const blackHoleMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 }
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float time;
-        varying vec2 vUv;
-        
-        void main() {
-          vec2 center = vec2(0.5);
-          float dist = distance(vUv, center);
-          float ring = sin(dist * 15.0 - time) * 0.5 + 0.5;
-          vec3 color = mix(vec3(0.5, 0.0, 1.0), vec3(0.0, 0.5, 1.0), ring);
-          float alpha = (1.0 - dist * 2.0) * ring * 0.7;
-          gl_FragColor = vec4(color, alpha);
-        }
-      `,
-      transparent: true,
-      blending: THREE.AdditiveBlending
-    });
+    const blackHoleGeometry = new THREE.SphereGeometry(150, sphereSegments, sphereSegments);
+    const blackHoleMaterial = lowPowerMode
+      ? new THREE.MeshBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.18 })
+      : new THREE.ShaderMaterial({
+          uniforms: {
+            time: { value: 0 }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            void main() {
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform float time;
+            varying vec2 vUv;
+            
+            void main() {
+              vec2 center = vec2(0.5);
+              float dist = distance(vUv, center);
+              float ring = sin(dist * 15.0 - time) * 0.5 + 0.5;
+              vec3 color = mix(vec3(0.5, 0.0, 1.0), vec3(0.0, 0.5, 1.0), ring);
+              float alpha = (1.0 - dist * 2.0) * ring * 0.7;
+              gl_FragColor = vec4(color, alpha);
+            }
+          `,
+          transparent: true,
+          blending: THREE.AdditiveBlending
+        });
     const blackHole = new THREE.Mesh(blackHoleGeometry, blackHoleMaterial);
     blackHole.position.set(-800, -600, -2000);
     webglScene.add(blackHole);
@@ -79,7 +99,7 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
     // Optimized stars - reduced count
     const starsGeometry = new THREE.BufferGeometry();
     const starVertices = [];
-    for (let i = 0; i < 2000; i++) {
+    for (let i = 0; i < starCount; i++) {
       const x = (Math.random() - 0.5) * 4000;
       const y = (Math.random() - 0.5) * 4000;
       const z = (Math.random() - 0.5) * 4000;
@@ -113,8 +133,8 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
     // Point lights - optimized
     const lights: THREE.PointLight[] = [];
     const lightColors = [0x8b5cf6, 0x3b82f6, 0x10b981, 0xef4444, 0xf97316, 0x06b6d4];
-    for (let i = 0; i < 6; i++) {
-      const light = new THREE.PointLight(lightColors[i], 0.3, 600);
+    for (let i = 0; i < lightCount; i++) {
+      const light = new THREE.PointLight(lightColors[i], lowPowerMode ? 0.2 : 0.3, 600);
       webglScene.add(light);
       lights.push(light);
     }
@@ -131,28 +151,38 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       { component: EducationFace, color: '#06b6d4', position: [0, -500, 0], rotation: [Math.PI / 2, 0, 0] },
     ];
 
+    const roots: ReturnType<typeof createRoot>[] = [];
     faces.forEach((face, index) => {
       const element = document.createElement('div');
-      element.style.width = '960px';
-      element.style.height = '960px';
-      element.style.padding = '60px';
+      element.style.width = '860px';
+      element.style.height = '860px';
+      element.style.padding = '40px';
       element.style.background = `linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 27, 75, 0.95) 100%)`;
       element.style.border = `3px solid ${face.color}`;
       element.style.borderRadius = '24px';
       element.style.boxShadow = `0 0 60px ${face.color}40, inset 0 0 40px ${face.color}08`;
       element.style.overflow = 'auto';
-      element.style.backdropFilter = 'blur(20px)';
+      element.style.contain = 'layout style paint';
+      element.style.willChange = 'transform';
       
       const FaceComponent = face.component;
       const root = createRoot(element);
-      root.render(<FaceComponent />);
+      root.render(
+        <Suspense fallback={<div style={{ color: '#cbd5e1', padding: '1rem' }}>Loading...</div>}>
+          <FaceComponent />
+        </Suspense>
+      );
+      roots.push(root);
 
       const object = new CSS3DObject(element);
       object.position.set(face.position[0], face.position[1], face.position[2]);
       object.rotation.set(face.rotation[0], face.rotation[1], face.rotation[2]);
       
       cubeGroup.add(object);
-      lights[index].position.set(face.position[0], face.position[1], face.position[2]);
+      const light = lights[index % lights.length];
+      if (light) {
+        light.position.set(face.position[0], face.position[1], face.position[2]);
+      }
     });
 
     scene.add(cubeGroup);
@@ -165,6 +195,7 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       isDragging = true;
       previousMousePosition = { x: e.clientX, y: e.clientY };
       velocityRef.current = { x: 0, y: 0 };
+      startAnimationRef.current?.();
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -176,6 +207,7 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
         velocityRef.current.x = deltaY * 0.005;
         
         previousMousePosition = { x: e.clientX, y: e.clientY };
+        startAnimationRef.current?.();
       }
     };
 
@@ -187,20 +219,38 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       e.preventDefault();
       camera.position.z += e.deltaY * 0.5;
       camera.position.z = Math.max(800, Math.min(2500, camera.position.z));
+      startAnimationRef.current?.();
     };
 
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    document.addEventListener('wheel', onWheel, { passive: false });
+    const interactionTarget = containerRef.current;
+    interactionTarget.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    interactionTarget.addEventListener('wheel', onWheel, { passive: false });
 
     // Optimized animation loop
-    let animationId: number;
+    let animationId = 0;
     let lastTime = 0;
-    const targetFPS = 60;
+    let hasRenderedOnce = false;
     const frameDelay = 1000 / targetFPS;
+    const hasMotion = () => {
+      const dx = targetRotationRef.current.x - currentRotationRef.current.x;
+      const dy = targetRotationRef.current.y - currentRotationRef.current.y;
+      return (
+        isDragging ||
+        Math.abs(velocityRef.current.x) > 0.0002 ||
+        Math.abs(velocityRef.current.y) > 0.0002 ||
+        Math.abs(dx) > 0.0005 ||
+        Math.abs(dy) > 0.0005
+      );
+    };
     
     const animate = (currentTime: number) => {
+      animationId = 0;
+
+      if (lowPowerMode && hasRenderedOnce && !hasMotion()) {
+        return;
+      }
       animationId = requestAnimationFrame(animate);
       
       const deltaTime = currentTime - lastTime;
@@ -208,19 +258,19 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       lastTime = currentTime - (deltaTime % frameDelay);
 
       // Update shader
-      if (blackHoleMaterial.uniforms.time) {
+      if (!lowPowerMode && blackHoleMaterial instanceof THREE.ShaderMaterial && blackHoleMaterial.uniforms.time) {
         blackHoleMaterial.uniforms.time.value = currentTime * 0.001;
       }
 
-      blackHole.rotation.y += 0.001;
+      blackHole.rotation.y += lowPowerMode ? 0.0004 : 0.001;
 
       // Inertia
       if (!isDragging) {
         currentRotationRef.current.x += velocityRef.current.x;
         currentRotationRef.current.y += velocityRef.current.y;
         
-        const dx = targetRotation.x - currentRotationRef.current.x;
-        const dy = targetRotation.y - currentRotationRef.current.y;
+        const dx = targetRotationRef.current.x - currentRotationRef.current.x;
+        const dy = targetRotationRef.current.y - currentRotationRef.current.y;
         
         currentRotationRef.current.x += dx * 0.1;
         currentRotationRef.current.y += dy * 0.1;
@@ -236,16 +286,23 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       wireframe.rotation.x = currentRotationRef.current.x;
       wireframe.rotation.y = currentRotationRef.current.y;
 
-      const floatY = Math.sin(currentTime * 0.0005) * 20;
+      const floatY = Math.sin(currentTime * 0.0005) * floatAmplitude;
       cubeGroup.position.y = floatY;
       wireframe.position.y = floatY;
 
-      stars.rotation.y += 0.0001;
+      stars.rotation.y += lowPowerMode ? 0.00005 : 0.0001;
 
       renderer.render(scene, camera);
       webglRenderer.render(webglScene, camera);
+      hasRenderedOnce = true;
     };
-    animate(0);
+    const startAnimation = () => {
+      if (animationId === 0) {
+        animationId = requestAnimationFrame(animate);
+      }
+    };
+    startAnimationRef.current = startAnimation;
+    startAnimation();
 
     // Handle resize
     const handleResize = () => {
@@ -253,17 +310,19 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
       webglRenderer.setSize(window.innerWidth, window.innerHeight);
+      startAnimation();
     };
     window.addEventListener('resize', handleResize);
 
     // Cleanup
     return () => {
       cancelAnimationFrame(animationId);
+      startAnimationRef.current = null;
       window.removeEventListener('resize', handleResize);
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.removeEventListener('wheel', onWheel);
+      interactionTarget.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      interactionTarget.removeEventListener('wheel', onWheel);
       if (containerRef.current && renderer.domElement.parentNode === containerRef.current) {
         containerRef.current.removeChild(renderer.domElement);
       }
@@ -275,8 +334,12 @@ export function Scene3D({ targetRotation }: Scene3DProps) {
       blackHoleMaterial.dispose();
       starsGeometry.dispose();
       starsMaterial.dispose();
+      cubeGeometry.dispose();
+      edges.dispose();
+      lineMaterial.dispose();
+      roots.forEach((root) => root.unmount());
     };
-  }, [targetRotation]);
+  }, []);
 
   return (
     <>
