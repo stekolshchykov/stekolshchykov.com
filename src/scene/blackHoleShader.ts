@@ -4,31 +4,40 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
   return {
     uTime: { value: 0 },
     uResolution: { value: new Vector2(width, height) },
-    uBlackHoleOffset: { value: new Vector2(-0.72, 0.16) },
-    uCameraDistance: { value: lowPowerMode ? 19.8 : 23.8 },
-    uCameraYaw: { value: -0.2 },
-    uCameraPitch: { value: -0.08 },
-    uBlackHoleMass: { value: lowPowerMode ? 0.64 : 0.82 },
-    uStepSize: { value: lowPowerMode ? 0.18 : 0.085 },
-    uGravitationalLensing: { value: lowPowerMode ? 2.06 : 2.96 },
-    uDiskInnerRadius: { value: 2.75 },
-    uDiskOuterRadius: { value: 8.6 },
-    uDiskBrightness: { value: lowPowerMode ? 2.12 : 3.35 },
-    uDiskTemperature: { value: 14500.0 },
-    uDiskRotationSpeed: { value: -4.5 },
-    uDiskScreenTilt: { value: lowPowerMode ? 0.38 : 0.32 },
-    uDiskScreenAngle: { value: -0.62 },
-    uMorphStrength: { value: lowPowerMode ? 0.52 : 0.78 },
-    uStarDensity: { value: lowPowerMode ? 0.15 : 0.23 },
-    uStarSize: { value: lowPowerMode ? 1.45 : 1.2 },
-    uStarBrightness: { value: lowPowerMode ? 0.8 : 1.12 },
-    uNebulaStrength: { value: lowPowerMode ? 0.32 : 0.5 },
-    uRaySteps: { value: lowPowerMode ? 88.0 : 156.0 },
+    uCameraPos: { value: new Vector2(0, 0) }, // Not used directly in shader but good for debugging if needed
+    uCameraDistance: { value: lowPowerMode ? 12.0 : 15.0 }, // Closer default for more impact
+    uCameraYaw: { value: 0.0 },
+    uCameraPitch: { value: 0.0 },
+
+    // Physics Parameters
+    uBlackHoleMass: { value: 1.0 },       // Normalized mass
+    uSchwarzschildRadius: { value: 2.0 }, // Rs = 2GM/c^2
+    uAccretionInner: { value: 5.0 },      // ~2.5 Rs
+    uAccretionOuter: { value: 16.0 },     // ~8 Rs
+
+    // High-Fidelity Rendering Params
+    uDiskTemperature: { value: 8000.0 },  // Kelvin base
+    uDiskDensity: { value: lowPowerMode ? 1.5 : 2.5 },
+    uDopplerStrength: { value: 1.0 },     // Control relativistic beaming
+    uLensingStrength: { value: 1.0 },
+
+    // Animation/Noise
+    uTimeScale: { value: 0.2 },
+    uNoiseScale: { value: 2.0 },
+    uDetailIter: { value: lowPowerMode ? 3 : 5 },
+    uStepSize: { value: 0.1 },
+
+    // Starfield Integration
+    uStarDensity: { value: 0.15 },
+    uStarBrightness: { value: 1.0 },
+    uStarSize: { value: 1.0 }, // Added missing uniform
   };
 }
 
 export const BLACK_HOLE_VERTEX_SHADER = `
+  varying vec2 vUv;
   void main() {
+    vUv = uv;
     vec4 worldPosition = modelMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * viewMatrix * worldPosition;
   }
@@ -39,103 +48,97 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
 
   uniform float uTime;
   uniform vec2 uResolution;
-  uniform vec2 uBlackHoleOffset;
   uniform float uCameraDistance;
   uniform float uCameraYaw;
   uniform float uCameraPitch;
+  
   uniform float uBlackHoleMass;
-  uniform float uStepSize;
-  uniform float uGravitationalLensing;
-  uniform float uDiskInnerRadius;
-  uniform float uDiskOuterRadius;
-  uniform float uDiskBrightness;
+  uniform float uSchwarzschildRadius;
+  uniform float uAccretionInner;
+  uniform float uAccretionOuter;
+  
   uniform float uDiskTemperature;
-  uniform float uDiskRotationSpeed;
-  uniform float uDiskScreenTilt;
-  uniform float uDiskScreenAngle;
-  uniform float uMorphStrength;
-  uniform float uStarDensity;
-  uniform float uStarSize;
-  uniform float uStarBrightness;
-  uniform float uNebulaStrength;
-  uniform float uRaySteps;
+  uniform float uDiskDensity;
+  uniform float uDopplerStrength;
+  uniform float uLensingStrength;
+  uniform float uStarSize; // Added missing uniform
+  
+  uniform float uTimeScale;
+  uniform float uNoiseScale;
+  uniform int uDetailIter;
+  
+  // Custom added uniform for raymarching step size
+  uniform float uStepSize;
 
-  const float PI = 3.141592653589793;
+  varying vec2 vUv;
 
-  float hash21(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  const float PI = 3.14159265359;
+  const float C = 299792458.0; // Speed of light (physically unrelated here but good for constants)
+
+  // -- NOISE FUNCTIONS --
+
+
+  // 3D Value Noise for smooth gas structures
+  float hash1(float n) { return fract(sin(n) * 43758.5453123); }
+  float hash3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453); }
+  
+  float noise(vec3 x) {
+    vec3 p = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    float n = p.x + p.y * 57.0 + p.z * 113.0;
+    return mix(mix(mix(hash1(n + 0.0), hash1(n + 1.0), f.x),
+                   mix(hash1(n + 57.0), hash1(n + 58.0), f.x), f.y),
+               mix(mix(hash1(n + 113.0), hash1(n + 114.0), f.x),
+                   mix(hash1(n + 170.0), hash1(n + 171.0), f.x), f.y), f.z);
   }
 
-  float hash31(vec3 p) {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+  // FBM with rotation/advection
+  float fbm(vec3 p) {
+    float f = 0.0;
+    float w = 0.5;
+    for (int i = 0; i < 5; i++) {
+      if (i >= uDetailIter) break;
+      f += w * noise(p);
+      p *= 2.02;
+      w *= 0.5;
+    }
+    return f;
+  }
+
+  // Domain warped noise for swirling fluid
+  float flowNoise(vec3 p, float t) {
+    vec3 offset = vec3(t * 0.5, 0.0, t * 0.2);
+    float n1 = fbm(p + offset);
+    float n2 = fbm(p + vec3(n1 * 2.0) - offset);
+    return fbm(p + vec3(n2 * 4.0));
+  }
+
+  // -- MISSING HASH FUNCTIONS --
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + vec2(45.32));
+    return fract(p.x * p.y);
   }
 
   vec2 hash22(vec2 p) {
-    return vec2(
-      fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453),
-      fract(sin(dot(p, vec2(269.5, 183.3))) * 43758.5453)
-    );
+    vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yzx + vec3(33.33));
+    return fract((p3.xx+p3.yz)*p3.zy);
   }
 
-  float noise3D(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-    vec3 u = f * f * (3.0 - 2.0 * f);
-
-    float a = hash31(i);
-    float b = hash31(i + vec3(1.0, 0.0, 0.0));
-    float c = hash31(i + vec3(0.0, 1.0, 0.0));
-    float d = hash31(i + vec3(1.0, 1.0, 0.0));
-    float e = hash31(i + vec3(0.0, 0.0, 1.0));
-    float f2 = hash31(i + vec3(1.0, 0.0, 1.0));
-    float g = hash31(i + vec3(0.0, 1.0, 1.0));
-    float h = hash31(i + vec3(1.0, 1.0, 1.0));
-
-    float x1 = mix(a, b, u.x);
-    float x2 = mix(c, d, u.x);
-    float y1 = mix(x1, x2, u.y);
-
-    float x3 = mix(e, f2, u.x);
-    float x4 = mix(g, h, u.x);
-    float y2 = mix(x3, x4, u.y);
-
-    return mix(y1, y2, u.z);
+  // -- SPECTRAL HELPER --
+  
+  vec3 blackbody(float Temp) {
+    vec3 col = vec3(255.);
+    col.x = 56100000. * pow(Temp,(-3. / 2.)) + 148.;
+    col.y = 100040000. * pow(Temp,(-3. / 2.)) + 165.;
+    col.z = 194180000. * pow(Temp,(-3. / 2.)) + 255.;
+    col /= 255.;
+    if (Temp > 6500.) col = mix(vec3(0.4, 0.6, 1.0), col, 0.5); // Blue shift bias for hot disks
+    return clamp(col, 0.0, 1.0); 
   }
 
-  float fbm(vec3 p) {
-    float value = 0.0;
-    float amplitude = 0.52;
-    vec3 pos = p;
-    for (int i = 0; i < 4; i++) {
-      value += noise3D(pos) * amplitude;
-      pos *= 2.03;
-      amplitude *= 0.5;
-    }
-    return value;
-  }
-
-  vec3 blackbodyApprox(float temperatureKelvin) {
-    float t = clamp(temperatureKelvin, 1000.0, 40000.0) / 100.0;
-    float r;
-    float g;
-    float b;
-
-    if (t <= 66.0) {
-      r = 255.0;
-      g = 99.4708025861 * log(t) - 161.1195681661;
-      if (t <= 19.0) {
-        b = 0.0;
-      } else {
-        b = 138.5177312231 * log(t - 10.0) - 305.0447927307;
-      }
-    } else {
-      r = 329.698727446 * pow(t - 60.0, -0.1332047592);
-      g = 288.1221695283 * pow(t - 60.0, -0.0755148492);
-      b = 255.0;
-    }
-
-    return clamp(vec3(r, g, b) / 255.0, 0.0, 1.0);
-  }
 
   vec3 starField(vec3 rayDir) {
     float theta = atan(rayDir.z, rayDir.x);
@@ -145,235 +148,156 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     vec2 cellUV = fract(scaled);
 
     float starChance = step(1.0 - uStarDensity, hash21(cell));
-    vec2 starPos = hash22(cell + 42.0) * 0.82 + 0.09;
+    vec2 starPos = hash22(cell + vec2(42.0)) * 0.82 + vec2(0.09);
     float distToStar = length(cellUV - starPos);
-    float baseSize = hash21(cell + 100.0) * 0.03 + 0.01;
+    float baseSize = hash21(cell + vec2(100.0)) * 0.03 + 0.01;
     float finalStarSize = baseSize * uStarSize;
     float core = smoothstep(finalStarSize, 0.0, distToStar);
     float glow = smoothstep(finalStarSize * 3.2, 0.0, distToStar) * 0.35;
-    float twinkle = 0.82 + 0.18 * sin(uTime * 0.55 + hash21(cell + 8.0) * 12.0);
+    float twinkle = 0.82 + 0.18 * sin(uTime * 0.55 + hash21(cell + vec2(8.0)) * 12.0);
     float intensity = (core + glow) * starChance * twinkle;
-    vec3 starColor = mix(vec3(0.82, 0.9, 1.0), vec3(1.0, 0.92, 0.76), hash21(cell + 200.0));
+    vec3 starColor = mix(vec3(0.82, 0.9, 1.0), vec3(1.0, 0.92, 0.76), hash21(cell + vec2(200.0)));
     return starColor * intensity * uStarBrightness;
   }
 
-  vec3 nebulaField(vec3 rayDir) {
-    float n1 = fbm(rayDir * 2.0 + vec3(uTime * 0.03, 0.0, 0.0));
-    float n2 = fbm(rayDir * 5.4 - vec3(0.0, uTime * 0.022, 0.0));
-    float layer1 = clamp((n1 - 0.45) * 1.9, 0.0, 1.0);
-    float layer2 = clamp((n2 - 0.52) * 2.2, 0.0, 1.0);
+  // -- VOLUMETRIC DISK LOGIC --
 
-    vec3 color1 = vec3(0.05, 0.14, 0.3) * layer1;
-    vec3 color2 = vec3(0.22, 0.08, 0.2) * layer2;
-    return (color1 + color2) * uNebulaStrength;
+  float getDiskDensity(vec3 p) {
+    float r = length(p);
+    if (r < uAccretionInner || r > uAccretionOuter) return 0.0;
+    
+    float h = abs(p.y);
+    float diskHeight = 0.5 + (r - uAccretionInner) * 0.1; // Flaring disk
+    if (h > diskHeight) return 0.0;
+
+    float density = uDiskDensity * exp(-2.0 * h / diskHeight); // Falloff height
+    
+    // Add noise/structure
+    float speed = sqrt(1.0 / max(r, 0.1)) * 4.0;
+    float angle = atan(p.z, p.x) + speed * uTime * uTimeScale;
+    vec3 noiseCoord = vec3(r * 0.5, angle * 2.0, h * 2.0);
+    
+    // Warped flow
+    float noiseVal = flowNoise(noiseCoord * uNoiseScale, uTime * uTimeScale * 0.5);
+    density *= smoothstep(0.2, 0.8, noiseVal); 
+    
+    // Soft edges
+    density *= smoothstep(uAccretionInner, uAccretionInner + 1.0, r);
+    density *= smoothstep(uAccretionOuter, uAccretionOuter - 2.0, r);
+    
+    return density;
   }
 
-  vec4 accretionDiskColor(float hitR, float hitAngle, float time, vec3 rayDir) {
-    float normR = clamp((hitR - uDiskInnerRadius) / (uDiskOuterRadius - uDiskInnerRadius), 0.0, 1.0);
-    float tempK = uDiskTemperature * pow(max(uDiskInnerRadius / max(hitR, 0.001), 0.001), 0.76);
-    vec3 diskColor = blackbodyApprox(tempK);
-
-    float rotationSign = sign(uDiskRotationSpeed);
-    vec3 velocityDir = normalize(vec3(-sin(hitAngle) * rotationSign, 0.0, cos(hitAngle) * rotationSign));
-    float velocityMagnitude = 1.0 / sqrt(max(hitR / uDiskInnerRadius, 0.02));
-    float beta = velocityMagnitude * 0.27;
-    float cosTheta = dot(velocityDir, rayDir);
-    float dopplerFactor = 1.0 / max(1.0 - beta * cosTheta, 0.22);
-    float dopplerBoost = pow(dopplerFactor, 2.6);
-    diskColor *= clamp(dopplerBoost, 0.18, 4.8);
-
-    float edgeIn = smoothstep(0.0, 0.17, normR);
-    float edgeOut = 1.0 - smoothstep(0.78, 1.0, normR);
-    float edgeMask = edgeIn * edgeOut;
-
-    float phase = time * uDiskRotationSpeed / pow(max(hitR, 0.2), 1.5);
-    float a = hitAngle + phase;
-    vec3 noiseCoord = vec3(
-      hitR * 1.45,
-      cos(a) / 0.62,
-      sin(a) / 0.62
-    );
-    float turbulence = fbm(noiseCoord + vec3(0.0, 0.0, time * 0.14));
-    float rings = pow(clamp(turbulence, 0.0, 1.0), 2.8);
-
-    float finalOpacity = rings * edgeMask;
-    vec3 finalColor = diskColor * (0.4 + rings * 1.08) * uDiskBrightness;
-    return vec4(finalColor, finalOpacity);
+  vec3 getDiskColor(vec3 p, vec3 viewDir) {
+    float r = length(p);
+    
+    // Temp gradient: Inner is hotter
+    float temp = uDiskTemperature * pow(uAccretionInner / r, 0.75);
+    vec3 baseColor = blackbody(temp);
+    
+    // Doppler Beaming
+    // Velocity vector for circular orbit in XZ plane
+    vec3 vel = normalize(vec3(-p.z, 0.0, p.x));
+    float beta = 0.5 * sqrt(uAccretionInner / r); // Approximation of orbital velocity relative to c
+    float doppler = 1.0 / (1.0 - beta * dot(vel, viewDir));
+    float beaming = pow(doppler, 3.0); // Relativistic beaming power
+    
+    return baseColor * mix(1.0, beaming, uDopplerStrength);
   }
 
   void main() {
-    vec2 uv = (gl_FragCoord.xy / uResolution.xy) * 2.0 - 1.0;
+    // 1. Ray Setup
+    vec2 uv = (vUv - 0.5) * 2.0;
     uv.x *= uResolution.x / uResolution.y;
-    float closeFactor = clamp((18.0 - uCameraDistance) / 15.0, 0.0, 1.0);
-    float sceneZoom = mix(1.0, 2.8, closeFactor);
-    uv /= sceneZoom;
 
-    float rs = uBlackHoleMass * 2.0;
-    float baseApparentRadius = 0.26 + rs * 0.04;
+    // Camera Basis
+    vec3 camPos = vec3(0.0, 0.0, uCameraDistance);
+    
+    // Rotate camera pos based on yaw/pitch
+    float cy = cos(uCameraYaw), sy = sin(uCameraYaw);
+    float cp = cos(uCameraPitch), sp = sin(uCameraPitch);
+    
+    // Yaw rotation (around Y)
+    camPos.xz = mat2(cy, -sy, sy, cy) * camPos.xz;
+    // Pitch rotation (around X local) - simplified for orbit
+    camPos.yz = mat2(cp, -sp, sp, cp) * camPos.yz;
 
-    vec3 camTarget = vec3(uBlackHoleOffset.x * 5.0, uBlackHoleOffset.y * 3.4, 0.0);
-    float yawSin = sin(uCameraYaw);
-    float yawCos = cos(uCameraYaw);
-    vec3 camPos = camTarget + vec3(
-      yawSin * uCameraDistance,
-      2.6 + uCameraPitch * uCameraDistance,
-      yawCos * uCameraDistance
-    );
-    vec3 camForward = normalize(camTarget - camPos);
-    vec3 camRight = normalize(cross(vec3(0.0, 1.0, 0.0), camForward));
-    vec3 camUp = cross(camForward, camRight);
+    vec3 camTarget = vec3(0.0);
+    vec3 camFwd = normalize(camTarget - camPos);
+    vec3 camRight = normalize(cross(vec3(0.0, 1.0, 0.0), camFwd));
+    vec3 camUp = cross(camFwd, camRight);
 
-    vec3 rayDir = normalize(camForward + camRight * uv.x + camUp * uv.y);
+    vec3 rayDir = normalize(camFwd + camRight * uv.x + camUp * uv.y);
     vec3 rayPos = camPos;
-    vec3 prevPos = camPos;
-    vec3 color = vec3(0.0);
-    float alpha = 0.0;
-    bool escaped = false;
-    bool captured = false;
 
-    for (int i = 0; i < 192; i++) {
-      if (float(i) >= uRaySteps || escaped || captured || alpha > 0.992) {
-        break;
-      }
+    vec3 accumColor = vec3(0.0);
+    float accumDensity = 0.0;
+    
+    bool hitHorizon = false;
+    float stepLen = uStepSize;
 
-      float r = length(rayPos);
-      if (r < rs * 1.01) {
-        captured = true;
-        break;
-      }
-
-      if (r > 120.0) {
-        escaped = true;
-        break;
-      }
-
-      vec3 toCenter = -rayPos / max(r, 0.0001);
-      float bendStrength = rs / max(r * r, 0.0001) * uStepSize * uGravitationalLensing;
-      rayDir = normalize(rayDir + toCenter * bendStrength);
-
-      prevPos = rayPos;
-      rayPos += rayDir * uStepSize;
-
-      bool crossedPlane = (prevPos.y * rayPos.y) < 0.0;
-      if (crossedPlane && alpha < 0.99) {
-        float t = -prevPos.y / (rayPos.y - prevPos.y);
-        vec3 hitPos = mix(prevPos, rayPos, t);
-        float hitR = length(hitPos.xz);
-        if (hitR > uDiskInnerRadius && hitR < uDiskOuterRadius) {
-          float hitAngle = atan(hitPos.z, hitPos.x);
-          vec4 disk = accretionDiskColor(hitR, hitAngle, uTime, rayDir);
-          float remaining = 1.0 - alpha;
-          color += disk.rgb * disk.a * remaining;
-          alpha += disk.a * remaining;
+    // 2. Ray Marching Loop
+    for(int i = 0; i < 128; i++) { // Max iterations
+        // Distance to BH center
+        float rSq = dot(rayPos, rayPos);
+        float r = sqrt(rSq);
+        
+        // Event Horizon check
+        if (r < uSchwarzschildRadius) {
+            hitHorizon = true;
+            break; 
         }
-      }
+        
+        // Escape condition
+        if (r > uCameraDistance * 2.0 && i > 10) break;
+
+        // Gravity Bending (Newtonian + correction for visual lensing)
+        // Force direction
+        vec3 gDir = -normalize(rayPos);
+        
+        // Bending factor: 1/r^2 falloff
+        // Adaptive strength to fake GR light bending
+        float bend = (uSchwarzschildRadius * 1.5) / rSq; 
+        
+        rayDir = normalize(rayDir + gDir * bend * uStepSize * uLensingStrength);
+        
+        // Adaptive Step
+        // Smaller steps near BH and disk
+        float dDisk = max(abs(rayPos.y) - 1.0, 0.0); // Vertical distance to disk plane approx
+        float proximity = min(r - uSchwarzschildRadius, dDisk);
+        stepLen = max(uStepSize * 0.2, proximity * 0.15); 
+        
+        // Move Ray
+        rayPos += rayDir * stepLen;
+        
+        // Volumetric Sampling
+        float density = getDiskDensity(rayPos);
+        if (density > 0.01) {
+            vec3 emission = getDiskColor(rayPos, rayDir);
+            float absorb = exp(-density * stepLen * 0.5);
+            vec3 contrib = emission * density * stepLen * (1.0 - accumDensity); // Emission-Absorption approx
+            accumColor += contrib;
+            accumDensity += (1.0 - absorb) * (1.0 - accumDensity);
+            
+            if (accumDensity > 0.98) break; // Opaque
+        }
     }
 
-    if (!captured) {
-      escaped = true;
+    // 3. Background / Shadow
+    if (hitHorizon) {
+        accumColor = mix(accumColor, vec3(0.0), 1.0 - accumDensity); // Black hole core
+    } else {
+        // Sample Background (Starfield/Nebula)
+        // We use the FINAL rayDir which has been bent by gravity -> Gravitational Lensing!
+        vec3 bg = starField(rayDir); // Removed nebulaField(rayDir) as it was undefined
+        accumColor += bg * (1.0 - accumDensity);
     }
-
-    if (escaped && alpha < 0.999) {
-      vec3 background = vec3(0.004, 0.008, 0.014);
-      background += starField(rayDir) + nebulaField(rayDir);
-
-      // Stronger lensing shell so nearby stars/nebula visibly bend around the event horizon.
-      vec2 bhScreenVec = uv - uBlackHoleOffset;
-      float bhScreenDist = max(length(bhScreenVec), 0.0008);
-      vec2 bhRadial = bhScreenVec / bhScreenDist;
-      vec2 bhTangent = vec2(-bhRadial.y, bhRadial.x);
-
-      float lensRadius = baseApparentRadius * (1.28 + closeFactor * 0.52);
-      float lensWidth = baseApparentRadius * (0.36 + closeFactor * 0.08);
-      float ringLens = exp(-pow((bhScreenDist - lensRadius) / lensWidth, 2.0));
-      float nearLens = exp(-pow((bhScreenDist - baseApparentRadius * 0.98) / (baseApparentRadius * 0.28), 2.0));
-      float haloLens = exp(-pow((bhScreenDist - baseApparentRadius * 2.15) / (baseApparentRadius * 0.78), 2.0));
-
-      float gravity = clamp((baseApparentRadius * (1.85 + closeFactor * 0.7)) / bhScreenDist, 0.0, 4.2);
-      float lensStrength = gravity * (0.22 + ringLens * 1.05 + nearLens * 0.62 + haloLens * 0.28);
-
-      vec2 lensUV =
-        uv +
-        bhTangent * lensStrength * baseApparentRadius * (0.62 + ringLens * 0.4) -
-        bhRadial * lensStrength * baseApparentRadius * (0.34 + nearLens * 0.18);
-
-      // Mild chromatic split reinforces the "space is bending" read without extra geometry.
-      vec2 chromaOffset = bhTangent * baseApparentRadius * (0.015 + ringLens * 0.014);
-      vec3 lensedDir = normalize(camForward + camRight * lensUV.x + camUp * lensUV.y);
-      vec3 lensedDirR = normalize(camForward + camRight * (lensUV.x + chromaOffset.x) + camUp * (lensUV.y + chromaOffset.y));
-      vec3 lensedDirB = normalize(camForward + camRight * (lensUV.x - chromaOffset.x) + camUp * (lensUV.y - chromaOffset.y));
-
-      vec3 lensedStars = starField(lensedDir);
-      vec3 lensedStarsR = starField(lensedDirR);
-      vec3 lensedStarsB = starField(lensedDirB);
-      vec3 lensedNebula = nebulaField(lensedDir);
-      vec3 lensedBackground = vec3(lensedStarsR.r, lensedStars.g, lensedStarsB.b) + lensedNebula;
-
-      float spaceStretch = clamp(ringLens * 1.4 + nearLens * 0.9 + haloLens * 0.45, 0.0, 2.6);
-      background += lensedBackground * spaceStretch;
-      background = mix(
-        background,
-        lensedBackground + vec3(0.014, 0.024, 0.04),
-        clamp(lensStrength * 0.48 + ringLens * 0.3, 0.0, 0.92)
-      );
-      color += background * (1.0 - alpha);
-    }
-
-    vec2 bhVec = uv - uBlackHoleOffset;
-    float bhAngle = atan(bhVec.y, bhVec.x);
-    float morphPulse = 0.5 + 0.5 * sin(uTime * 0.86);
-    float morphAmp = uMorphStrength * (0.72 + closeFactor * 0.52);
-    float angularWarp =
-      sin(bhAngle * 3.0 + uTime * 1.7) * 0.14 +
-      sin(bhAngle * 5.0 - uTime * 1.26) * 0.1 +
-      sin(bhAngle * 9.0 + uTime * 2.34) * 0.05;
-    float noiseWarp = (noise3D(vec3(cos(bhAngle) * 2.8, sin(bhAngle) * 2.8, uTime * 0.31)) - 0.5) * 2.0;
-    float warp = (angularWarp + noiseWarp * 0.18) * morphAmp * (0.7 + 0.6 * morphPulse);
-    float bhScreenR = length(bhVec) * (1.0 + warp);
-    float apparentRadius = baseApparentRadius * (1.0 + morphAmp * 0.14 * sin(uTime * 0.92));
-
-    float shadowCore = 1.0 - smoothstep(apparentRadius * 0.82, apparentRadius * 0.95, bhScreenR);
-    float shadowFeather = 1.0 - smoothstep(apparentRadius * 0.95, apparentRadius * 1.08, bhScreenR);
-    color *= 1.0 - shadowCore * 0.996;
-    color *= 1.0 - shadowFeather * 0.28;
-
-    float photonCore = exp(-pow((bhScreenR - apparentRadius * 1.0) / (apparentRadius * 0.045), 2.0));
-    float photonRing = exp(-pow((bhScreenR - apparentRadius * 1.18) / (apparentRadius * 0.095), 2.0));
-    float photonOuter = exp(-pow((bhScreenR - apparentRadius * 1.58) / (apparentRadius * 0.16), 2.0));
-    color += vec3(0.96, 0.99, 1.0) * photonCore * 0.94;
-    color += vec3(0.66, 0.86, 1.0) * photonRing * 0.5;
-    color += vec3(0.2, 0.37, 0.58) * photonOuter * 0.15;
-    float lensArc = exp(-pow((bhScreenR - apparentRadius * 1.36) / (apparentRadius * 0.12), 2.0));
-    color += vec3(0.58, 0.78, 1.0) * lensArc * (0.22 + closeFactor * 0.18);
-
-    float focusBoost = exp(-pow((bhScreenR - apparentRadius * 1.18) / (apparentRadius * 0.42), 2.0));
-    color *= 1.0 + focusBoost * 0.26;
-
-    // Force a readable accretion ellipse on screen so the black-hole "ring" remains visible.
-    vec2 diskUV = uv - uBlackHoleOffset;
-    float c = cos(uDiskScreenAngle);
-    float s = sin(uDiskScreenAngle);
-    vec2 diskRot = vec2(
-      c * diskUV.x - s * diskUV.y,
-      s * diskUV.x + c * diskUV.y
-    );
-    diskRot.y /= max(uDiskScreenTilt, 0.18);
-    float diskAngle = atan(diskRot.y, diskRot.x);
-    float diskWarp = sin(diskAngle * 4.0 - uTime * 1.35) * 0.12 * morphAmp;
-    vec2 diskMorphed = vec2(
-      diskRot.x * (1.0 + diskWarp),
-      diskRot.y * (1.0 - diskWarp * 0.55)
-    );
-    float diskScreenR = length(diskMorphed);
-    float ellipseCore = exp(-pow((diskScreenR - apparentRadius * 1.28) / (apparentRadius * 0.09), 2.0));
-    float ellipseGlow = exp(-pow((diskScreenR - apparentRadius * 1.52) / (apparentRadius * 0.2), 2.0));
-    float ellipseMask = 1.0 - shadowCore * 0.8;
-    color += vec3(0.92, 0.98, 1.0) * ellipseCore * 0.68 * ellipseMask;
-    color += vec3(0.48, 0.73, 0.98) * ellipseGlow * 0.24 * ellipseMask;
-
-    color = max(color, vec3(0.0));
-    color = pow(color, vec3(0.9));
-    color = clamp(color * 1.28 - 0.01, 0.0, 1.0);
-    gl_FragColor = vec4(color, 1.0);
-  }
+    
+    // 4. Tone Mapping & Output
+    // Simple Reinhard-ish
+    accumColor = accumColor / (accumColor + vec3(1.0));
+    // Gamma correction
+    accumColor = pow(accumColor, vec3(1.0/2.2));
+    
+    gl_FragColor = vec4(accumColor, 1.0);
 `;

@@ -22,7 +22,7 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
       <div className="about-layout">
         <img
           className="about-layout__photo"
-          src="https://www.stekolschikov.com/images/me.jpg"
+          src="/me.jpg"
           alt={ui.aboutPhotoAlt}
           loading="lazy"
         />

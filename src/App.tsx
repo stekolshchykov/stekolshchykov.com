@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import './app.css';
 import { type Locale, uiTexts } from './content/stekolschikovContent';
 import { MobileSite } from './components/MobileSite';
-import { DebugPanel } from './components/DebugPanel';
+import { SEOHead } from './components/SEOHead';
 import { FACE_CODES, FACE_ROTATIONS, getDirectionByKey, NAV_BY_FACE, type Direction, type FaceId } from './navigation';
 import { UIKeyButton, UILangButton } from './ui-kit';
 import { logEvent, logRuntime } from './observability/logger';
@@ -201,6 +201,7 @@ export default function App() {
 
   return (
     <>
+      <SEOHead locale={locale} activeFace={activeFace} />
       {isMobile ? (
         <MobileSite
           locale={locale}
@@ -281,7 +282,6 @@ export default function App() {
           </nav>
         </div>
       )}
-      <DebugPanel />
     </>
   );
 }

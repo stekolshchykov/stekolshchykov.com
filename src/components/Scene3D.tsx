@@ -159,11 +159,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     });
     const baseBlackHoleYaw = blackHoleUniforms.uCameraYaw.value;
     const baseBlackHolePitch = blackHoleUniforms.uCameraPitch.value;
-    const baseBlackHoleOffsetX = blackHoleUniforms.uBlackHoleOffset.value.x;
-    const baseBlackHoleOffsetY = blackHoleUniforms.uBlackHoleOffset.value.y;
     const defaultShaderDistance = blackHoleUniforms.uCameraDistance.value;
-    const baseDiskScreenAngle = blackHoleUniforms.uDiskScreenAngle.value;
-    const baseDiskScreenTilt = blackHoleUniforms.uDiskScreenTilt.value;
     const blackHoleSky = new Mesh(blackHoleGeometry, blackHoleMaterial);
     blackHoleSky.frustumCulled = false;
     blackHoleSky.renderOrder = -1000;
@@ -177,24 +173,22 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const deepStarSpread = lowPowerMode ? 7600 : 10500;
     const deepStarPositions = new Float32Array(deepStarCount * 3);
     const deepStarColors = new Float32Array(deepStarCount * 3);
-    const safeVoid = cubeSize * 0.7;
+
+    // Spherical distribution for deep stars
     for (let i = 0; i < deepStarCount; i++) {
       const idx = i * 3;
-      let x = (Math.random() * 2 - 1) * deepStarSpread;
-      let y = (Math.random() * 2 - 1) * deepStarSpread * 0.82;
-      let z = (Math.random() * 2 - 1) * deepStarSpread;
-      if (Math.abs(x) < safeVoid && Math.abs(y) < safeVoid && Math.abs(z) < safeVoid) {
-        x *= 2.6;
-        y *= 2.4;
-        z *= 2.6;
-      }
-      deepStarPositions[idx] = x;
-      deepStarPositions[idx + 1] = y;
-      deepStarPositions[idx + 2] = z;
+      // Random point on sphere surface/volume
+      const r = deepStarSpread * (0.4 + Math.pow(Math.random(), 2) * 0.6);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
 
-      const starHue = 0.54 + Math.random() * 0.16;
-      const starSat = 0.16 + Math.random() * 0.28;
-      const starLum = 0.68 + Math.random() * 0.3;
+      deepStarPositions[idx] = r * Math.sin(phi) * Math.cos(theta);
+      deepStarPositions[idx + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.6; // Flatten slightly
+      deepStarPositions[idx + 2] = r * Math.cos(phi);
+
+      const starHue = 0.58 + Math.random() * 0.12;
+      const starSat = 0.2 + Math.random() * 0.3;
+      const starLum = 0.7 + Math.random() * 0.3;
       const color = new Color().setHSL(starHue, starSat, Math.min(0.95, starLum));
       deepStarColors[idx] = color.r;
       deepStarColors[idx + 1] = color.g;
@@ -207,9 +201,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     spaceGeometries.push(deepStarGeometry);
 
     const deepStarMaterial = new PointsMaterial({
-      size: lowPowerMode ? 2.2 : 2.45,
+      size: lowPowerMode ? 2.2 : 2.6,
       transparent: true,
-      opacity: lowPowerMode ? 0.56 : 0.7,
+      opacity: lowPowerMode ? 0.56 : 0.75,
       depthWrite: false,
       blending: AdditiveBlending,
       vertexColors: true,
@@ -219,47 +213,56 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     deepStars.frustumCulled = false;
     webglScene.add(deepStars);
 
-    const tunnelStarCount = lowPowerMode ? 1200 : 2800;
-    const tunnelDepth = lowPowerMode ? 1500 : 2300;
-    const tunnelRadius = lowPowerMode ? 640 : 980;
-    const tunnelPositions = new Float32Array(tunnelStarCount * 3);
-    const tunnelColors = new Float32Array(tunnelStarCount * 3);
-    const tunnelSpeeds = new Float32Array(tunnelStarCount);
-    for (let i = 0; i < tunnelStarCount; i++) {
-      const idx = i * 3;
-      const radius = Math.sqrt(Math.random()) * tunnelRadius;
-      const angle = Math.random() * Math.PI * 2;
-      tunnelPositions[idx] = Math.cos(angle) * radius;
-      tunnelPositions[idx + 1] = Math.sin(angle) * radius * (0.55 + Math.random() * 0.5);
-      tunnelPositions[idx + 2] = -Math.random() * tunnelDepth;
+    // Floating particles (formerly tunnel stars)
+    const particleCount = lowPowerMode ? 1400 : 3200;
+    const particleRange = lowPowerMode ? 1800 : 2600;
+    const particlePositions = new Float32Array(particleCount * 3);
+    const particleColors = new Float32Array(particleCount * 3);
+    const particleVelocities = new Float32Array(particleCount * 3);
 
-      const warpColor = new Color().setHSL(0.56 + Math.random() * 0.14, 0.2 + Math.random() * 0.24, 0.76 + Math.random() * 0.18);
-      tunnelColors[idx] = warpColor.r;
-      tunnelColors[idx + 1] = warpColor.g;
-      tunnelColors[idx + 2] = warpColor.b;
-      tunnelSpeeds[i] = 0.55 + Math.random() * 1.35;
+    for (let i = 0; i < particleCount; i++) {
+      const idx = i * 3;
+      // Random spread in a box around camera (will wrap)
+      particlePositions[idx] = (Math.random() - 0.5) * particleRange * 2;
+      particlePositions[idx + 1] = (Math.random() - 0.5) * particleRange * 2;
+      particlePositions[idx + 2] = (Math.random() - 0.5) * particleRange * 2;
+
+      const pColor = new Color().setHSL(0.6 + Math.random() * 0.15, 0.4 + Math.random() * 0.4, 0.7 + Math.random() * 0.3);
+      particleColors[idx] = pColor.r;
+      particleColors[idx + 1] = pColor.g;
+      particleColors[idx + 2] = pColor.b;
+
+      // Gentle random drift
+      particleVelocities[idx] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8);
+      particleVelocities[idx + 1] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8);
+      particleVelocities[idx + 2] = (Math.random() - 0.5) * (lowPowerMode ? 0.4 : 0.8) + (Math.random() * 1.5); // Slight forward bias
     }
 
-    const tunnelGeometry = new BufferGeometry();
-    tunnelGeometry.setAttribute('position', new Float32BufferAttribute(tunnelPositions, 3));
-    tunnelGeometry.setAttribute('color', new Float32BufferAttribute(tunnelColors, 3));
-    spaceGeometries.push(tunnelGeometry);
-    const tunnelMaterial = new PointsMaterial({
-      size: lowPowerMode ? 2.2 : 2.8,
+    const particleGeometry = new BufferGeometry();
+    particleGeometry.setAttribute('position', new Float32BufferAttribute(particlePositions, 3));
+    particleGeometry.setAttribute('color', new Float32BufferAttribute(particleColors, 3));
+    spaceGeometries.push(particleGeometry);
+    const particleMaterial = new PointsMaterial({
+      size: lowPowerMode ? 1.8 : 2.4,
       transparent: true,
-      opacity: lowPowerMode ? 0.62 : 0.74,
+      opacity: lowPowerMode ? 0.45 : 0.6,
       depthWrite: false,
       blending: AdditiveBlending,
       vertexColors: true,
     });
-    spaceMaterials.push(tunnelMaterial);
-    const tunnelStars = new Points(tunnelGeometry, tunnelMaterial);
-    tunnelStars.frustumCulled = false;
-    const tunnelGroup = new Group();
-    tunnelGroup.add(tunnelStars);
-    webglScene.add(tunnelGroup);
+    spaceMaterials.push(particleMaterial);
+    const floatingParticles = new Points(particleGeometry, particleMaterial);
+    floatingParticles.frustumCulled = false;
+    // Note: NOT adding to a group that copies camera rotation. 
+    // We add directly to scene, but will manipulate position in loop to follow camera.
 
-    logEvent('scene.starfield.ready', { deepStars: deepStarCount, tunnelStars: tunnelStarCount, lowPowerMode });
+    // Instead of a separate group, let's keep them in a group for position following, 
+    // but WE WILL NOT COPY ROTATION.
+    const particleGroup = new Group();
+    particleGroup.add(floatingParticles);
+    webglScene.add(particleGroup);
+
+    logEvent('scene.starfield.ready', { deepStars: deepStarCount, particles: particleCount, lowPowerMode });
 
     const cubeGeometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
     const edges = new EdgesGeometry(cubeGeometry);
@@ -286,13 +289,13 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       position: [number, number, number];
       rotation: [number, number, number];
     }> = [
-      { component: AboutFace as CubeFaceComponent, color: '#8b5cf6', position: [0, 0, faceDepth], rotation: [0, 0, 0] },
-      { component: SkillsFace as CubeFaceComponent, color: '#3b82f6', position: [0, 0, -faceDepth], rotation: [0, Math.PI, 0] },
-      { component: ProjectsFace as CubeFaceComponent, color: '#10b981', position: [faceDepth, 0, 0], rotation: [0, Math.PI / 2, 0] },
-      { component: ExperienceFace as CubeFaceComponent, color: '#ef4444', position: [-faceDepth, 0, 0], rotation: [0, -Math.PI / 2, 0] },
-      { component: ContactFace as CubeFaceComponent, color: '#f97316', position: [0, faceDepth, 0], rotation: [-Math.PI / 2, 0, 0] },
-      { component: EducationFace as CubeFaceComponent, color: '#06b6d4', position: [0, -faceDepth, 0], rotation: [Math.PI / 2, 0, 0] },
-    ];
+        { component: AboutFace as CubeFaceComponent, color: '#8b5cf6', position: [0, 0, faceDepth], rotation: [0, 0, 0] },
+        { component: SkillsFace as CubeFaceComponent, color: '#3b82f6', position: [0, 0, -faceDepth], rotation: [0, Math.PI, 0] },
+        { component: ProjectsFace as CubeFaceComponent, color: '#10b981', position: [faceDepth, 0, 0], rotation: [0, Math.PI / 2, 0] },
+        { component: ExperienceFace as CubeFaceComponent, color: '#ef4444', position: [-faceDepth, 0, 0], rotation: [0, -Math.PI / 2, 0] },
+        { component: ContactFace as CubeFaceComponent, color: '#f97316', position: [0, faceDepth, 0], rotation: [-Math.PI / 2, 0, 0] },
+        { component: EducationFace as CubeFaceComponent, color: '#06b6d4', position: [0, -faceDepth, 0], rotation: [Math.PI / 2, 0, 0] },
+      ];
 
     const roots: ReturnType<typeof createRoot>[] = [];
     faces.forEach((face, index) => {
@@ -520,8 +523,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
             const minDynamicZoom = flight.distanceMode === 'close'
               ? Math.max(minZoom * 0.42, 360)
               : flight.distanceMode === 'near'
-              ? Math.max(minZoom * 0.68, minZoom - 260)
-              : minZoom;
+                ? Math.max(minZoom * 0.68, minZoom - 260)
+                : minZoom;
             cameraDistance = Math.max(minDynamicZoom, Math.min(maxZoom, shotDistance));
 
             const shaderDistance =
@@ -550,16 +553,15 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         baseBlackHoleYaw - cameraYaw * 1.9 - cubeTiltY * 0.55 + flightShaderYaw;
       blackHoleMaterial.uniforms.uCameraPitch.value =
         baseBlackHolePitch + cameraPitch * 1.55 - cubeTiltX * 0.42 + flightShaderPitch;
-      blackHoleMaterial.uniforms.uBlackHoleOffset.value.set(
-        Math.max(-0.95, Math.min(-0.14, baseBlackHoleOffsetX - cameraYaw * 0.3 - cubeTiltY * 0.11 + flightOffsetX)),
-        Math.max(-0.16, Math.min(0.4, baseBlackHoleOffsetY + cameraPitch * 0.2 + cubeTiltX * 0.09 + flightOffsetY))
-      );
-      blackHoleMaterial.uniforms.uDiskScreenAngle.value =
-        baseDiskScreenAngle + cameraYaw * 1.08 + cubeTiltY * 0.55 + Math.sin(currentTime * 0.00022) * 0.05;
-      blackHoleMaterial.uniforms.uDiskScreenTilt.value = Math.max(
-        0.22,
-        baseDiskScreenTilt + Math.abs(cameraPitch) * 0.2 + Math.sin(currentTime * 0.0003 + flightSwirl) * 0.02
-      );
+
+      // NEW: Static black hole (no wobbling offset), camera moves around it.
+      // We removed uBlackHoleOffset, so we don't update it.
+
+      // Animate time and noise scales for the accretion disk
+      blackHoleMaterial.uniforms.uTimeScale.value = 0.2 + flightEnvelope * 0.3; // Speed up during flight
+
+      // Doppler/Lensing dynamic adjustments based on flight speed/angle could go here
+      // but for now we keep them stable for physical accuracy.
 
       const orbitScale = 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
       const cameraOrbitRadius = Math.max(72, cameraDistance * (0.09 * orbitScale));
@@ -570,35 +572,40 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       camera.lookAt(0, floatY, 0);
       camera.rotation.z = cameraRoll;
       blackHoleSky.position.copy(camera.position);
-      const cameraDelta = camera.position.distanceTo(previousCameraPosition);
-      previousCameraPosition.copy(camera.position);
 
+      // Update Deep Stars (Rotate slowly)
       deepStars.rotation.y += frameDeltaSeconds * (lowPowerMode ? 0.008 : 0.014);
       deepStars.rotation.x += frameDeltaSeconds * (lowPowerMode ? 0.0016 : 0.0028);
       deepStarMaterial.opacity = (lowPowerMode ? 0.5 : 0.62) + flightEnvelope * 0.18;
 
-      tunnelGroup.position.copy(camera.position);
-      tunnelGroup.quaternion.copy(camera.quaternion);
-      const tunnelAttr = tunnelGeometry.getAttribute('position');
-      const tunnelArray = tunnelAttr.array as Float32Array;
-      const speedFromCamera = Math.min(5.5, cameraDelta / 9);
-      const flightSpeedBoost = 1 + speedFromCamera + flightEnvelope * (lowPowerMode ? 5 : 8.5);
-      const tunnelBaseSpeed = lowPowerMode ? 260 : 380;
-      const tunnelSpeed = tunnelBaseSpeed * flightSpeedBoost;
-      for (let i = 0; i < tunnelStarCount; i++) {
+      // Update Floating Particles
+      particleGroup.position.copy(camera.position);
+      // NOTE: We do NOT copy quaternion, so they don't rotate with camera.
+
+      const pAttr = particleGeometry.getAttribute('position');
+      const pArray = pAttr.array as Float32Array;
+
+      for (let i = 0; i < particleCount; i++) {
         const idx = i * 3;
-        tunnelArray[idx + 2] += frameDeltaSeconds * tunnelSpeed * tunnelSpeeds[i];
-        if (tunnelArray[idx + 2] > 110) {
-          const radius = Math.sqrt(Math.random()) * tunnelRadius;
-          const angle = Math.random() * Math.PI * 2;
-          tunnelArray[idx] = Math.cos(angle) * radius;
-          tunnelArray[idx + 1] = Math.sin(angle) * radius * (0.55 + Math.random() * 0.5);
-          tunnelArray[idx + 2] = -tunnelDepth * (0.9 + Math.random() * 0.4);
-        }
+
+        // Apply velocity
+        pArray[idx] += particleVelocities[idx];
+        pArray[idx + 1] += particleVelocities[idx + 1];
+        pArray[idx + 2] += particleVelocities[idx + 2];
+
+        // Wrap around logic (infinite field effect)
+        // Since the group moves with camera, these positions are relative to camera
+        const range = particleRange;
+        if (pArray[idx] > range) pArray[idx] -= range * 2;
+        if (pArray[idx] < -range) pArray[idx] += range * 2;
+        if (pArray[idx + 1] > range) pArray[idx + 1] -= range * 2;
+        if (pArray[idx + 1] < -range) pArray[idx + 1] += range * 2;
+        if (pArray[idx + 2] > range) pArray[idx + 2] -= range * 2;
+        if (pArray[idx + 2] < -range) pArray[idx + 2] += range * 2;
       }
-      tunnelAttr.needsUpdate = true;
-      tunnelMaterial.size = (lowPowerMode ? 2.5 : 3.2) + flightEnvelope * (lowPowerMode ? 1.1 : 1.9);
-      tunnelMaterial.opacity = Math.min(0.92, (lowPowerMode ? 0.5 : 0.6) + flightEnvelope * 0.28 + speedFromCamera * 0.05);
+      pAttr.needsUpdate = true;
+      particleMaterial.size = (lowPowerMode ? 1.8 : 2.4) + flightEnvelope * (lowPowerMode ? 0.5 : 0.8);
+      particleMaterial.opacity = Math.min(0.85, (lowPowerMode ? 0.45 : 0.6) + flightEnvelope * 0.2);
 
       let burst = 0;
       if (!prefersReducedMotion && rotationBurstRef.current.active) {
