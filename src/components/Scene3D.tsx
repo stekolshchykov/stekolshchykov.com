@@ -9,6 +9,7 @@ import { useCelestialBodies } from './scene/hooks/useCelestialBodies';
 import { useCameraControls } from './scene/hooks/useCameraControls';
 import { useCinematicCamera } from './scene/hooks/useCinematicCamera';
 import { useAdaptiveQuality } from './scene/hooks/useAdaptiveQuality';
+import { usePostProcessing } from './scene/hooks/usePostProcessing';
 import { createCubeStructure, FaceActor } from './scene/CubeStructure';
 import { Vector3, Group, LineSegments, Frustum, Matrix4 } from 'three';
 
@@ -75,6 +76,7 @@ export function Scene3D({ targetRotation, locale, onReady }: Scene3DProps) {
   // We pass null if not initialized, the hook handles it safely
   const { updateCelestialUniforms, handleResize: handleCelestialResize, applyQuality: applyCelestialQuality } = useCelestialBodies({
     sceneRef: webglSceneRef,
+    cameraRef,
     lowPowerMode,
     initialized
   });
@@ -84,6 +86,14 @@ export function Scene3D({ targetRotation, locale, onReady }: Scene3DProps) {
     sceneRef: webglSceneRef,
     lowPowerMode,
     initialized
+  });
+
+  const { composerRef } = usePostProcessing({
+    renderer: webglRendererRef.current,
+    scene: webglSceneRef.current,
+    camera: cameraRef.current,
+    initialized,
+    lowPowerMode
   });
 
   const { qualityTier, qualityPreset, reportFrame } = useAdaptiveQuality({
@@ -426,7 +436,11 @@ export function Scene3D({ targetRotation, locale, onReady }: Scene3DProps) {
         cssRenderer.render(scene, camera);
       }
       if (webglScene && camera && webglRenderer) {
-        webglRenderer.render(webglScene, camera);
+        if (composerRef.current) {
+          composerRef.current.render();
+        } else {
+          webglRenderer.render(webglScene, camera);
+        }
       }
 
       if (!readyNotifiedRef.current) {

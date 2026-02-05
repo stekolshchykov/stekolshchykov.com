@@ -8,6 +8,7 @@ import {
   HemisphereLight,
   Mesh,
   MeshBasicMaterial,
+  PerspectiveCamera,
   PointLight,
   RingGeometry,
   Scene,
@@ -18,10 +19,12 @@ import {
 } from 'three';
 import { SUN_FRAGMENT_SHADER, SUN_VERTEX_SHADER, createSunUniforms } from '../../../scene/sunShader';
 import { SUN_CORONA_FRAGMENT_SHADER, SUN_CORONA_VERTEX_SHADER } from '../../../scene/sunCoronaShader';
+import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
 import { logEvent, logRuntime } from '../../../observability/logger';
 
 interface CelestialBodiesConfig {
   sceneRef: RefObject<Scene | null>;
+  cameraRef: RefObject<PerspectiveCamera | null>;
   lowPowerMode: boolean;
   initialized: boolean;
 }
@@ -89,6 +92,57 @@ void main() {
   float turb = 0.95 + 0.05 * sin(vNormal.x * 12.0 + vNormal.y * 15.0 + uTime * 2.2);
   
   gl_FragColor = vec4(uColor * glow * turb, glow * turb * 0.85);
+}
+`;
+
+const GOD_RAYS_VERTEX_SHADER = `
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+
+void main() {
+  vUv = uv;
+  vNormal = normalize(normalMatrix * normal);
+  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vWorldPos = worldPos.xyz;
+  gl_Position = projectionMatrix * viewMatrix * worldPos;
+}
+`;
+
+const GOD_RAYS_FRAGMENT_SHADER = `
+uniform float uTime;
+uniform vec3 uColor;
+uniform float uIntensity;
+
+varying vec2 vUv;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+
+void main() {
+  vec3 viewDir = normalize(cameraPosition - vWorldPos);
+  float ndv = max(dot(vNormal, viewDir), 0.0);
+  
+  // Create radial rays using polar coordinates
+  vec2 center = vec2(0.5, 0.5);
+  vec2 dir = vUv - center;
+  float angle = atan(dir.y, dir.x);
+  float dist = length(dir);
+  
+  float rays = 0.0;
+  rays += sin(angle * 8.0 + uTime * 0.5) * 0.5 + 0.5;
+  rays += sin(angle * 13.0 - uTime * 0.8) * 0.3 + 0.3;
+  rays += sin(angle * 21.0 + uTime * 1.2) * 0.2 + 0.2;
+  
+  // Sharpen the rays
+  rays = pow(rays, 4.5);
+  
+  // Fade with distance from center and viewing angle
+  float edgeFade = smoothstep(0.5, 0.2, dist);
+  float viewFade = pow(ndv, 1.5);
+  
+  float alpha = rays * edgeFade * viewFade * uIntensity;
+  
+  gl_FragColor = vec4(uColor * rays * uIntensity * 1.5, alpha);
 }
 `;
 
@@ -459,11 +513,14 @@ function getBlackHoleStyle(variant: BlackHoleVariant, lowPowerMode: boolean) {
   return base;
 }
 
-export function useCelestialBodies({ sceneRef, lowPowerMode, initialized }: CelestialBodiesConfig) {
+export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initialized }: CelestialBodiesConfig) {
   const sunMaterialRef = useRef<ShaderMaterial | null>(null);
   const sunCoronaMaterialRef = useRef<ShaderMaterial | null>(null);
   const sunAuraMaterialRef = useRef<ShaderMaterial | null>(null);
+  const sunGodRaysMaterialRef = useRef<ShaderMaterial | null>(null);
   const sunCoronaMeshRef = useRef<Mesh | null>(null);
+  const sunGodRaysMeshRef = useRef<Mesh | null>(null);
+  const sunLensflareRef = useRef<Lensflare | null>(null);
   const sunGlowMeshRef = useRef<Mesh | null>(null);
   const sunLightRef = useRef<PointLight | null>(null);
 
@@ -563,6 +620,56 @@ export function useCelestialBodies({ sceneRef, lowPowerMode, initialized }: Cele
     const sunAuraMesh = new Mesh(sunAuraGeometry, sunAuraMaterial);
     sunAuraMesh.position.copy(sunMesh.position);
     scene.add(sunAuraMesh);
+
+    const sunGodRaysGeometry = new RingGeometry(0, lowPowerMode ? 400 : 720, lowPowerMode ? 32 : 64);
+    const sunGodRaysMaterial = new ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new Color('#ffd7a1') },
+        uIntensity: { value: lowPowerMode ? 0.15 : 0.25 },
+      },
+      vertexShader: GOD_RAYS_VERTEX_SHADER,
+      fragmentShader: GOD_RAYS_FRAGMENT_SHADER,
+      side: DoubleSide,
+      transparent: true,
+      blending: AdditiveBlending,
+      depthWrite: false,
+    });
+    sunGodRaysMaterialRef.current = sunGodRaysMaterial;
+    const sunGodRaysMesh = new Mesh(sunGodRaysGeometry, sunGodRaysMaterial);
+    sunGodRaysMesh.position.copy(sunMesh.position);
+    scene.add(sunGodRaysMesh);
+    sunGodRaysMeshRef.current = sunGodRaysMesh;
+
+    const flareColor = new Color('#ffdcb3');
+    const lensflare = new Lensflare();
+
+    // Create procedural flares
+    const mainFlareCanvas = document.createElement('canvas');
+    mainFlareCanvas.width = 128; mainFlareCanvas.height = 128;
+    const ctx = mainFlareCanvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      grad.addColorStop(0.2, 'rgba(255, 240, 200, 0.5)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    const { CanvasTexture } = (window as any).THREE || require('three');
+    const flareTex = new CanvasTexture(mainFlareCanvas);
+
+    lensflare.addElement(new LensflareElement(flareTex, 180, 0, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 48, 0.6, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 24, 0.7, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 56, 0.9, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 32, 1.0, flareColor));
+
+    lensflare.position.copy(sunMesh.position);
+    if (!lowPowerMode) {
+      scene.add(lensflare);
+      sunLensflareRef.current = lensflare;
+    }
 
     const sunLight = new PointLight(
       new Color('#ffd7a1'),
@@ -815,6 +922,7 @@ export function useCelestialBodies({ sceneRef, lowPowerMode, initialized }: Cele
       scene.remove(sunGlowMesh);
       scene.remove(sunCoronaMesh);
       scene.remove(sunAuraMesh);
+      scene.remove(sunGodRaysMesh);
       scene.remove(sunLight);
       scene.remove(fillLight);
       scene.remove(blackHoleGroup);
@@ -881,6 +989,10 @@ export function useCelestialBodies({ sceneRef, lowPowerMode, initialized }: Cele
       sunAuraMaterialRef.current.uniforms.uTime.value = timeSec;
       sunAuraMaterialRef.current.uniforms.uPower.value = (lowPowerMode ? 0.7 : 0.9) * (0.92 + blackHoleDetail * 0.2);
     }
+    if (sunGodRaysMaterialRef.current) {
+      sunGodRaysMaterialRef.current.uniforms.uTime.value = timeSec;
+      sunGodRaysMaterialRef.current.uniforms.uIntensity.value = (lowPowerMode ? 0.45 : 0.85) * (0.85 + blackHoleDetail * 0.4);
+    }
     if (blackHoleCoreMaterialRef.current) {
       blackHoleCoreMaterialRef.current.uniforms.uTime.value = timeSec;
       blackHoleCoreMaterialRef.current.uniforms.uDetail.value = blackHoleDetail;
@@ -906,6 +1018,10 @@ export function useCelestialBodies({ sceneRef, lowPowerMode, initialized }: Cele
     if (sunGlowMeshRef.current) {
       const glowPulse = 1 + Math.sin(timeSec * 1.9 + 0.7) * 0.022;
       sunGlowMeshRef.current.scale.set(glowPulse, glowPulse, glowPulse);
+    }
+    if (sunGodRaysMeshRef.current && cameraRef.current) {
+      // Billboarding effect: face the camera
+      sunGodRaysMeshRef.current.lookAt(cameraRef.current.position);
     }
 
     if (blackHoleGroupRef.current) {
