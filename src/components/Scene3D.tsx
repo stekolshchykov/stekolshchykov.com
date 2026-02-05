@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Material, Mesh, PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Scene, ShaderMaterial, Vector3, WebGLRenderer, Matrix4 } from 'three';
+import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Material, Mesh, PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Scene, ShaderMaterial, Vector3, WebGLRenderer, SphereGeometry } from 'three';
 import { CSS3DRenderer } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { createCubeStructure } from './scene/CubeStructure';
 import type { Locale } from '../content/stekolschikovContent';
 import { logEvent, logRuntime } from '../observability/logger';
 import { BLACK_HOLE_FRAGMENT_SHADER, BLACK_HOLE_VERTEX_SHADER, createBlackHoleUniforms } from '../scene/blackHoleShader';
+import { SUN_FRAGMENT_SHADER, SUN_VERTEX_SHADER, createSunUniforms } from '../scene/sunShader';
 
 // USER REQUEST: Toggle for Cube Visibility
 const SHOW_CUBE = true; // Set to true to re-enable the cube
@@ -15,6 +16,7 @@ interface Scene3DProps {
 }
 
 export function Scene3D({ targetRotation, locale }: Scene3DProps) {
+  const canvasSmoothStep = (t: number) => t * t * (3 - 2 * t);
   const containerRef = useRef<HTMLDivElement>(null);
   const webglContainerRef = useRef<HTMLDivElement>(null);
   const currentRotationRef = useRef({ x: 0, y: 0 });
@@ -42,6 +44,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     offsetY: 0,
     shaderYawBias: 0,
     shaderPitchBias: 0,
+    targetSubject: 'blackhole' as 'blackhole' | 'sun',
   });
   const hasInitializedTargetRef = useRef(false);
 
@@ -56,6 +59,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       transitionCountRef.current += 1;
       const shouldRunCloseShot = transitionCountRef.current % 2 === 0;
       const distanceMode = shouldRunCloseShot ? 'close' : Math.random() < 0.5 ? 'near' : 'far';
+      // Cinematic Director: Alternate between Sun and Black Hole, or pick random
+      const targetSubject = Math.random() > 0.65 ? 'sun' : 'blackhole';
+
       const nearShot = distanceMode === 'near';
       const closeShot = distanceMode === 'close';
       cameraFlightRef.current = {
@@ -77,6 +83,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         offsetY: (Math.random() * 2 - 1) * (closeShot ? 0.12 : 0.2),
         shaderYawBias: (Math.random() * 2 - 1) * (closeShot ? 0.45 : 0.8),
         shaderPitchBias: (Math.random() * 2 - 1) * (closeShot ? 0.3 : 0.5),
+        targetSubject,
       };
       logRuntime('debug', 'scene3d-camera', 'Camera flight triggered', {
         shot: distanceMode,
@@ -156,6 +163,23 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     blackHoleSky.frustumCulled = false;
     blackHoleSky.renderOrder = -1000;
     webglScene.add(blackHoleSky);
+
+    // --- SUN SETUP ---
+    const sunUniforms = createSunUniforms();
+    const sunGeometry = new SphereGeometry(60, 64, 64); // Large sun
+    const sunMaterial = new ShaderMaterial({
+      uniforms: sunUniforms,
+      vertexShader: SUN_VERTEX_SHADER,
+      fragmentShader: SUN_FRAGMENT_SHADER,
+    });
+    const sunMesh = new Mesh(sunGeometry, sunMaterial);
+    // Position Sun opposite to Black Hole/Camera default. 
+    // If Black Hole is conceptualized at 0,0 (shader logic), we place Sun in world space.
+    // The shader handles the black hole at the "end of the tunnel".
+    // We'll place the physical Sun mesh at Z: -1200, X: 400 for a majestic layout.
+    sunMesh.position.set(400, 100, -1200);
+    webglScene.add(sunMesh);
+
     logEvent('scene.blackhole.shader.ready', { mode: 'webgl-raymarch', lowPowerMode });
 
     const spaceGeometries: BufferGeometry[] = [];
@@ -384,7 +408,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       lastTime = currentTime - (deltaTime % frameDelay);
       const frameDeltaSeconds = Math.min(0.05, deltaTime / 1000);
 
+      // Update Uniforms
       blackHoleMaterial.uniforms.uTime.value = currentTime * 0.001;
+      sunMaterial.uniforms.uTime.value = currentTime * 0.001;
 
       if (!isDragging) {
         currentRotationRef.current.x += velocityRef.current.x;
@@ -528,15 +554,57 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       // Doppler/Lensing dynamic adjustments based on flight speed/angle could go here
       // but for now we keep them stable for physical accuracy.
 
+      // --- CINEMATIC CAMERA ---
+      // Determine base look target
+      let lookAtTarget = new Vector3(0, floatY, 0); // Default look at cube/center
+
+      // If flying to Sun, shift lookAt
+      if (cameraFlightRef.current.active && cameraFlightRef.current.targetSubject === 'sun') {
+        // Interpolate lookAt towards Sun to frame it
+        // Not directly AT it (keep cube in view), but biased
+        const sunBias = new Vector3(200, 50, -600); // Directional pull
+        const progress = (currentTime - cameraFlightRef.current.startMs) / (lowPowerMode ? cameraFlightRef.current.durationMs * 0.82 : cameraFlightRef.current.durationMs);
+        const smoothProgress = Math.min(1, Math.max(0, canvasSmoothStep(progress)));
+
+        lookAtTarget.lerp(sunBias, smoothProgress * 0.6); // 60% pull towards sun
+      } else {
+        // Default pull towards black hole center behavior (which is forward Z)
+        // Black hole is rendered essentially at infinity in LOOK direction
+      }
+
       const orbitScale = 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
       const cameraOrbitRadius = Math.max(72, cameraDistance * (0.09 * orbitScale));
       const cameraOffsetX = Math.sin(cameraYaw) * cameraOrbitRadius;
       const cameraOffsetY = Math.sin(cameraPitch) * cameraOrbitRadius * 0.5;
       const cameraOffsetZ = Math.cos(cameraYaw) * cameraOrbitRadius * 0.18;
+
       camera.position.set(cameraOffsetX, floatY + cameraOffsetY, cameraDistance + cameraOffsetZ);
-      camera.lookAt(0, floatY, 0);
+
+      // Apply the calculated lookAt
+      camera.lookAt(lookAtTarget);
       camera.rotation.z = cameraRoll;
+
+      // Keep Black Hole Skybox locked to camera position (infinite background) 
+      // BUT we need it behind everything.
       blackHoleSky.position.copy(camera.position);
+
+      // We need to verify if Sun is visible or if we need to rotate skybox or move sun?
+      // Since Black Hole is a fullscreen quad shader, it "paints over" everything behind it.
+      // We must ensure the Sun (Mesh) is physically in front of the Black Hole Quad if we want standard depth.
+      // Check Render Order:
+      // Black Hole Quad: -1000 (Very far back).
+      // Sun Mesh: Default (0).
+      // So Sun works fine.
+
+      // CINEMATIC CONSTRAINT: ALWAYS IN FRAME
+      // If neither is in frame, we failed.
+      // With our LookAt logic, we are always looking either:
+      // 1. At the Cube (0,0,0) - Sun is at (400, 100, -1200) -> visible in background if FOV wide enough?
+      // 2. Biased towards Sun -> Sun definitely visible.
+      // Black Hole is omnipresent background so always visible unless occluded by sun.
+
+      // Update Sun Corona orientation to face camera
+      // (If we were using billboard corona)
 
       // Update Deep Stars (Rotate slowly)
       deepStars.rotation.y += frameDeltaSeconds * (lowPowerMode ? 0.008 : 0.014);
@@ -601,8 +669,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       wireframe.scale.set(wireScale, wireScale, wireScale);
 
       cssRenderer.render(scene, camera);
-      webglRenderer.render(webglScene, camera);
-      hasRenderedOnce = true;
     };
 
     const startAnimation = () => {
@@ -647,6 +713,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       webglRenderer.dispose();
       blackHoleGeometry.dispose();
       blackHoleMaterial.dispose();
+      sunGeometry.dispose();
+      sunMaterial.dispose();
       spaceGeometries.forEach((geometry) => geometry.dispose());
       spaceMaterials.forEach((material) => material.dispose());
       spaceGeometries.forEach((geometry) => geometry.dispose());
