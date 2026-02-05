@@ -1,0 +1,13 @@
+Use case: homepage hero video for a developer portfolio site
+Primary request: a futuristic metallic cube rotates in a clean studio space, opens into six floating panels, each panel reveals abstract interface motifs for frontend, backend, DevOps, and design, then the panels fold back into a single cube
+Scene/background: minimal dark-to-light gradient studio, faint volumetric haze, subtle floor reflections
+Subject: one brushed-metal cube with six articulated faces
+Action: smooth open-and-close transform cycle with one complete reveal
+Camera: medium-wide hero shot, gentle clockwise orbit, very stable motion
+Lighting/mood: cinematic rim light, soft top key, confident and modern
+Color palette: graphite, cyan, steel blue, soft white
+Style/format: premium motion-graphics look, high detail materials, crisp edges
+Timing/beats: beat 1 rotate in; beat 2 unfold and reveal; beat 3 hold for readability; beat 4 fold and settle
+Audio: subtle electronic pulse and soft whoosh accents, no voiceover
+Constraints: no logos, no trademarks, no readable text, no people
+Avoid: jitter, flicker, warped geometry, fast random motion

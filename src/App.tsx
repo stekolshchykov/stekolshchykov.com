@@ -1,99 +1,289 @@
-import { useState } from 'react';
-import { Scene3D } from './components/Scene3D';
-import { Joystick } from './components/Joystick';
-import { LoadingScreen } from './components/LoadingScreen';
-import { QRCard } from './components/QRCard';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import './app.css';
+import { type Locale, uiTexts } from './content/stekolschikovContent';
+import { MobileSite } from './components/MobileSite';
+import { DebugPanel } from './components/DebugPanel';
+import { FACE_CODES, FACE_ROTATIONS, getDirectionByKey, NAV_BY_FACE, type Direction, type FaceId } from './navigation';
+import { UIKeyButton, UILangButton } from './ui-kit';
+import { logEvent, logRuntime } from './observability/logger';
+import { installAudioAutoStart, playButtonSound, playRotationSound } from './audio/soundscape';
+
+const Scene3D = lazy(() => import('./components/Scene3D').then((m) => ({ default: m.Scene3D })));
+
+const MOBILE_BREAKPOINT = 900;
+const LOCALES: Locale[] = ['ru', 'en', 'uk'];
+
+
+const STORAGE_LOCALE_KEY = 'stekolschikov-locale';
+
+function detectSystemLocale(): Locale {
+  if (typeof navigator === 'undefined') return 'ru';
+
+  const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
+    ? navigator.languages
+    : [navigator.language];
+
+  const normalized = candidates.map((entry) => String(entry || '').toLowerCase());
+  if (normalized.some((lang) => lang.startsWith('uk') || lang.startsWith('ua'))) return 'uk';
+  if (normalized.some((lang) => lang.startsWith('ru'))) return 'ru';
+  return 'en';
+}
+
+function getInitialLocale(): Locale {
+  try {
+    const stored = localStorage.getItem(STORAGE_LOCALE_KEY);
+    if (stored === 'ru' || stored === 'en' || stored === 'uk') {
+      return stored;
+    }
+  } catch {
+    // ignore storage read errors and continue with system locale
+  }
+  return detectSystemLocale();
+}
+
+function getIsMobileViewport(): boolean {
+  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
+}
 
 export default function App() {
-  const [targetRotation, setTargetRotation] = useState({ x: 0, y: 0 });
+  const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
+  const [activeFace, setActiveFace] = useState<FaceId>('welcome');
+  const [isMobile, setIsMobile] = useState<boolean>(() => getIsMobileViewport());
+  const [pulseText, setPulseText] = useState<string>('');
+  const [pulseKey, setPulseKey] = useState(0);
+  const [pressedDirection, setPressedDirection] = useState<Direction | null>(null);
+  const pulseTimerRef = useRef<number | null>(null);
+  const pressedTimerRef = useRef<number | null>(null);
 
-  const rotateCube = (direction: 'up' | 'down' | 'left' | 'right' | 'front' | 'back') => {
-    const speed = Math.PI / 2;
-    
-    switch (direction) {
-      case 'up':
-        setTargetRotation(prev => ({ x: Math.max(prev.x - speed, -Math.PI / 2), y: prev.y }));
-        break;
-      case 'down':
-        setTargetRotation(prev => ({ x: Math.min(prev.x + speed, Math.PI / 2), y: prev.y }));
-        break;
-      case 'left':
-        setTargetRotation(prev => ({ ...prev, y: prev.y + speed }));
-        break;
-      case 'right':
-        setTargetRotation(prev => ({ ...prev, y: prev.y - speed }));
-        break;
-      case 'front':
-        setTargetRotation({ x: 0, y: 0 });
-        break;
-      case 'back':
-        setTargetRotation({ x: 0, y: Math.PI });
-        break;
+  const t = uiTexts[locale];
+
+  const faceLabels = useMemo(
+    () => ({
+      welcome: t.welcome,
+      skills: t.skills,
+      about: t.about,
+      cooperation: t.cooperation,
+      contacts: t.contacts,
+      work: t.work,
+    }),
+    [t]
+  );
+  useEffect(() => {
+    logRuntime('info', 'app', 'App mounted', {
+      locale,
+      activeFace,
+      isMobile,
+    });
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
+
+    const onChange = (event: MediaQueryListEvent) => {
+      logRuntime('info', 'viewport', 'Viewport mode changed', { isMobile: event.matches });
+      setIsMobile(event.matches);
+    };
+
+    setIsMobile(mediaQuery.matches);
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', onChange);
+      return () => mediaQuery.removeEventListener('change', onChange);
+    }
+
+    mediaQuery.addListener(onChange);
+    return () => mediaQuery.removeListener(onChange);
+  }, []);
+
+  useEffect(() => {
+    logRuntime('debug', 'app-state', 'Locale changed', { locale });
+  }, [locale]);
+
+  useEffect(() => {
+    logRuntime('debug', 'app-state', 'Face changed', { activeFace });
+    logEvent('navigation.menu.rendered', { face: activeFace }, 'debug');
+  }, [activeFace]);
+
+  useEffect(() => {
+    logRuntime('debug', 'app-state', 'Layout mode changed', { isMobile });
+  }, [isMobile]);
+
+  useEffect(() => {
+    const cleanupAudioAutoStart = installAudioAutoStart();
+    return () => {
+      cleanupAudioAutoStart();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pulseTimerRef.current) {
+        window.clearTimeout(pulseTimerRef.current);
+      }
+      if (pressedTimerRef.current) {
+        window.clearTimeout(pressedTimerRef.current);
+      }
+    };
+  }, []);
+
+  const triggerPulse = (label: string) => {
+    logRuntime('debug', 'ui', 'Pulse triggered', { label });
+    setPulseText(label);
+    setPulseKey((prev) => prev + 1);
+    if (pulseTimerRef.current) {
+      window.clearTimeout(pulseTimerRef.current);
+    }
+    pulseTimerRef.current = window.setTimeout(() => {
+      setPulseText('');
+    }, 700);
+  };
+
+  const switchLocale = (nextLocale: Locale) => {
+    logRuntime('info', 'locale', 'Locale switch requested', { from: locale, to: nextLocale });
+    localStorage.setItem(STORAGE_LOCALE_KEY, nextLocale);
+    setLocale(nextLocale);
+  };
+
+  const applyPressedDirection = (direction: Direction) => {
+    setPressedDirection(direction);
+    playButtonSound();
+    if (pressedTimerRef.current) {
+      window.clearTimeout(pressedTimerRef.current);
+    }
+    pressedTimerRef.current = window.setTimeout(() => {
+      setPressedDirection(null);
+    }, 180);
+  };
+
+  const changeFace = (faceId: FaceId, withPulse = false, trigger?: { source: 'key' | 'click'; key?: string; direction?: Direction }) => {
+    const current = activeFace;
+    const currentNav = NAV_BY_FACE[current];
+    const direction = (Object.keys(currentNav) as Array<keyof typeof currentNav>).find((key) => currentNav[key] === faceId);
+    logRuntime('info', 'navigation', 'Face change requested', {
+      from: current,
+      to: faceId,
+      direction: direction ?? 'direct',
+      nav: currentNav,
+      withPulse,
+    });
+    if (trigger?.source === 'key' && trigger.direction) {
+      logEvent('navigation.input.key', { key: trigger.key, direction: trigger.direction, to: faceId });
+      applyPressedDirection(trigger.direction);
+    }
+    if (trigger?.source === 'click' && trigger.direction) {
+      logEvent('navigation.input.click', { direction: trigger.direction, to: faceId });
+      applyPressedDirection(trigger.direction);
+    }
+    if (current !== faceId) {
+      playRotationSound();
+    }
+    setActiveFace(faceId);
+    if (withPulse && !isMobile) {
+      triggerPulse(faceLabels[faceId]);
     }
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isMobile) return;
+      const direction = getDirectionByKey(event.code);
+      if (!direction) return;
+      event.preventDefault();
+      const targetFace = NAV_BY_FACE[activeFace][direction];
+      changeFace(targetFace, true, { source: 'key', key: event.code, direction });
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeFace, isMobile]);
+
   return (
-    <div className="w-full h-screen bg-black overflow-hidden relative">
-      <LoadingScreen />
-      
-      <Scene3D targetRotation={targetRotation} />
+    <>
+      {isMobile ? (
+        <MobileSite
+          locale={locale}
+          locales={LOCALES}
+          activeFace={activeFace}
+          onFaceChange={(faceId) => changeFace(faceId, false)}
+          onLocaleChange={switchLocale}
+        />
+      ) : (
+        <div className="cube-app">
+          <Suspense fallback={<div className="scene-fallback" />}>
+            <Scene3D targetRotation={FACE_ROTATIONS[activeFace]} locale={locale} />
+          </Suspense>
 
-      {/* Elegant Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 p-8 pointer-events-none">
-        <div className="text-center">
-          <div className="inline-block">
-            <h1 className="text-6xl font-bold text-white mb-2 tracking-wider">
-              <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent">
-                ALEX MORGAN
-              </span>
-            </h1>
-            <div className="h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent rounded-full"></div>
-          </div>
-          <p className="text-xl text-slate-300 mt-4 font-light tracking-widest">
-            FULL STACK DEVELOPER
-          </p>
+          <header className="cube-header">
+            <div className="cube-header__titles">
+              <p className="cube-role">{t.personRole}</p>
+              <h1>{t.personName}</h1>
+            </div>
+
+            <div className="lang-switcher" aria-label={t.language}>
+              {LOCALES.map((lang) => (
+                <UILangButton key={lang} active={lang === locale} onClick={() => switchLocale(lang)}>
+                  {lang.toUpperCase()}
+                </UILangButton>
+              ))}
+            </div>
+          </header>
+
+          {pulseText ? (
+            <div key={`${pulseText}-${pulseKey}`} className="face-pulse" aria-live="polite">
+              {pulseText}
+            </div>
+          ) : null}
+
+          <nav className="desktop-nav" aria-label="Cube navigation">
+            <div className="keyboard-deck">
+              <div className="arrow-cluster menu-roll-in">
+                <UIKeyButton
+                  className="key-up"
+                  code={FACE_CODES[NAV_BY_FACE[activeFace].up]}
+                  direction="up"
+                  label={faceLabels[NAV_BY_FACE[activeFace].up]}
+                  pressed={pressedDirection === 'up'}
+                  ariaKeyShortcuts="ArrowUp W"
+                  onClick={() => changeFace(NAV_BY_FACE[activeFace].up, true, { source: 'click', direction: 'up' })}
+                />
+
+                <div className="arrow-row">
+                  <UIKeyButton
+                    className="key-left"
+                    code={FACE_CODES[NAV_BY_FACE[activeFace].left]}
+                    direction="left"
+                    label={faceLabels[NAV_BY_FACE[activeFace].left]}
+                    pressed={pressedDirection === 'left'}
+                    ariaKeyShortcuts="ArrowLeft A"
+                    onClick={() => changeFace(NAV_BY_FACE[activeFace].left, true, { source: 'click', direction: 'left' })}
+                  />
+
+                  <UIKeyButton
+                    className="key-down"
+                    active
+                    code={FACE_CODES[NAV_BY_FACE[activeFace].down]}
+                    direction="down"
+                    label={faceLabels[NAV_BY_FACE[activeFace].down]}
+                    pressed={pressedDirection === 'down'}
+                    ariaKeyShortcuts="ArrowDown S"
+                    onClick={() => changeFace(NAV_BY_FACE[activeFace].down, true, { source: 'click', direction: 'down' })}
+                  />
+
+                  <UIKeyButton
+                    className="key-right"
+                    code={FACE_CODES[NAV_BY_FACE[activeFace].right]}
+                    direction="right"
+                    label={faceLabels[NAV_BY_FACE[activeFace].right]}
+                    pressed={pressedDirection === 'right'}
+                    ariaKeyShortcuts="ArrowRight D"
+                    onClick={() => changeFace(NAV_BY_FACE[activeFace].right, true, { source: 'click', direction: 'right' })}
+                  />
+                </div>
+              </div>
+            </div>
+          </nav>
         </div>
-      </div>
-
-      {/* Joystick Control */}
-      <Joystick onNavigate={rotateCube} />
-
-      {/* QR Card */}
-      <QRCard />
-
-      {/* Instructions */}
-      <div className="absolute top-8 right-8 z-10 max-w-sm pointer-events-auto">
-        <div className="bg-gradient-to-br from-slate-900/70 via-purple-900/30 to-slate-900/70 backdrop-blur-2xl border border-purple-500/20 rounded-2xl p-6 shadow-2xl shadow-purple-500/10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></div>
-            <h3 className="font-semibold text-white tracking-wide">NAVIGATION</h3>
-          </div>
-          <ul className="text-sm text-slate-300 space-y-2">
-            <li className="flex items-center gap-2">
-              <span className="text-purple-400">◆</span>
-              <span>Use joystick to rotate the cube</span>
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-purple-400">◆</span>
-              <span>Drag with mouse for free rotation</span>
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-purple-400">◆</span>
-              <span>Scroll to zoom in/out</span>
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-purple-400">◆</span>
-              <span>Each face contains portfolio section</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      {/* Ambient Overlay */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-0 w-1/3 h-1/3 bg-purple-500/5 blur-[100px] rounded-full"></div>
-        <div className="absolute bottom-0 right-0 w-1/3 h-1/3 bg-blue-500/5 blur-[100px] rounded-full"></div>
-      </div>
-    </div>
+      )}
+      <DebugPanel />
+    </>
   );
 }

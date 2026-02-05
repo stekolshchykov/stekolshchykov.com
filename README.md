@@ -1,11 +1,31 @@
+# 3D Cube Portfolio CV
 
-  # 3D Cube Portfolio CV
+3D cube portfolio with adaptive rendering:
+- Desktop: Three.js cube with 6 faces
+- Mobile: lightweight flat site (auto switch by viewport)
 
-  This is a code bundle for 3D Cube Portfolio CV. The original project is available at https://www.figma.com/design/su1jrIyov9L5M0ditp9QHs/3D-Cube-Portfolio-CV.
+## Local run
 
-  ## Running the code
+```bash
+npm i
+npm run dev
+```
 
-  Run `npm i` to install the dependencies.
+## Production build
 
-  Run `npm run dev` to start the development server.
-  
+```bash
+npm run build
+```
+
+## GitHub Pages
+
+This repo includes:
+- `.github/workflows/deploy-pages.yml` for automatic deploy from `main`
+- `public/CNAME` with `stekolshchykov.com`
+- Vite `base` configured to work on GitHub Pages/custom domain
+
+Manual Pages build:
+
+```bash
+npm run build:pages
+```

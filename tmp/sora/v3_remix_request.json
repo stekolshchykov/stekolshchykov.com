@@ -1,0 +1,7 @@
+{
+  "dry_run": true,
+  "request": {
+    "endpoint": "/v1/videos/video_ITER1_ID/remix",
+    "prompt": "Primary request: same shot and framing; shift palette to electric cyan, deep navy, and warm amber, and add one subtle light sweep across the cube in the final second.\nConstraints: keep the simplified panel design, camera move, and transform timing unchanged.\nAvoid: color clipping, oversaturation, strobing highlights."
+  }
+}

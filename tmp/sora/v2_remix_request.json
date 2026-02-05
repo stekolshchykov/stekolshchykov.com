@@ -1,0 +1,7 @@
+{
+  "dry_run": true,
+  "request": {
+    "endpoint": "/v1/videos/video_BASE_ID/remix",
+    "prompt": "Primary request: same shot and framing; simplify each floating panel to bold, clean geometric UI motifs and improve readability during the hold.\nConstraints: keep cube material, studio setting, camera orbit path, and timing beats unchanged.\nAvoid: dense tiny details, shimmer, flicker, noisy textures."
+  }
+}

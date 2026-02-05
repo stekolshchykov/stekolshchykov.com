@@ -1,0 +1,10 @@
+{
+  "dry_run": true,
+  "request": {
+    "endpoint": "/v1/videos",
+    "model": "sora-2",
+    "prompt": "Use case: homepage hero video for a developer portfolio site\nPrimary request: a futuristic metallic cube rotates in a clean studio space, opens into six floating panels, each panel reveals abstract interface motifs for frontend, backend, DevOps, and design, then the panels fold back into a single cube\nScene/background: minimal dark-to-light gradient studio, faint volumetric haze, subtle floor reflections\nSubject: one brushed-metal cube with six articulated faces\nAction: smooth open-and-close transform cycle with one complete reveal\nCamera: medium-wide hero shot, gentle clockwise orbit, very stable motion\nLighting/mood: cinematic rim light, soft top key, confident and modern\nColor palette: graphite, cyan, steel blue, soft white\nStyle/format: premium motion-graphics look, high detail materials, crisp edges\nTiming/beats: beat 1 rotate in; beat 2 unfold and reveal; beat 3 hold for readability; beat 4 fold and settle\nAudio: subtle electronic pulse and soft whoosh accents, no voiceover\nConstraints: no logos, no trademarks, no readable text, no people\nAvoid: jitter, flicker, warped geometry, fast random motion",
+    "seconds": "8",
+    "size": "1280x720"
+  }
+}

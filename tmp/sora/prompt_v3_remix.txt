@@ -1,0 +1,3 @@
+Primary request: same shot and framing; shift palette to electric cyan, deep navy, and warm amber, and add one subtle light sweep across the cube in the final second.
+Constraints: keep the simplified panel design, camera move, and transform timing unchanged.
+Avoid: color clipping, oversaturation, strobing highlights.

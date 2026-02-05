@@ -4,6 +4,8 @@
   import path from 'path';
 
   export default defineConfig({
+    // Relative base keeps assets working on GitHub Pages and custom domains.
+    base: process.env.VITE_BASE_PATH ?? './',
     plugins: [react()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
@@ -50,8 +52,29 @@
       },
     },
     build: {
-      target: 'esnext',
+      target: 'es2020',
       outDir: 'build',
+      sourcemap: false,
+      chunkSizeWarningLimit: 700,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/three')) return 'three-core';
+            if (id.includes('node_modules/react') || id.includes('node_modules/scheduler')) return 'react-core';
+            if (
+              id.includes('node_modules/@radix-ui') ||
+              id.includes('node_modules/lucide-react') ||
+              id.includes('node_modules/class-variance-authority') ||
+              id.includes('node_modules/clsx') ||
+              id.includes('node_modules/tailwind-merge')
+            ) {
+              return 'ui-core';
+            }
+            if (id.includes('node_modules')) return 'vendor';
+            return undefined;
+          },
+        },
+      },
     },
     server: {
       port: 3000,

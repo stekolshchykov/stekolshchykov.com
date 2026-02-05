@@ -1,0 +1,3 @@
+Primary request: same shot and framing; simplify each floating panel to bold, clean geometric UI motifs and improve readability during the hold.
+Constraints: keep cube material, studio setting, camera orbit path, and timing beats unchanged.
+Avoid: dense tiny details, shimmer, flicker, noisy textures.
