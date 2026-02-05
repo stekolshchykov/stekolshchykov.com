@@ -111,7 +111,12 @@ export const SUN_VERTEX_SHADER = `
     float highFreq = snoise(position * (0.062 * uSurfaceNoiseScale) + vec3(-flow * 1.4, flow * 0.91, flow * 0.52));
     vNoise = lowFreq * 0.72 + highFreq * 0.28;
 
-    vec3 displacedPosition = position + normal * ((0.42 + vNoise * 0.58) * uDisplacementScale);
+    // Phase 3 #15: Dynamic Prominences (Solar flares/loops)
+    // Use high-contrast noise to create isolated spikes
+    float prominenceNoise = pow(max(0.0, vNoise), 4.5);
+    float prominenceHeight = prominenceNoise * 2.8 * (0.8 + 0.2 * sin(uTime * 1.5 + vNoise * 10.0));
+
+    vec3 displacedPosition = position + normal * (((0.42 + vNoise * 0.58) * uDisplacementScale) + prominenceHeight);
     vec4 worldPos = modelMatrix * vec4(displacedPosition, 1.0);
 
     vWorldPos = worldPos.xyz;
@@ -120,9 +125,9 @@ export const SUN_VERTEX_SHADER = `
 
     gl_Position = projectionMatrix * viewMatrix * worldPos;
   }
-\`;
+`;
 
-export const SUN_FRAGMENT_SHADER = \`
+export const SUN_FRAGMENT_SHADER = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
@@ -237,5 +242,4 @@ export const SUN_FRAGMENT_SHADER = \`
 
     gl_FragColor = vec4(color, 1.0);
   }
-\`;
 `;

@@ -140,37 +140,46 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
             noisePos.xz *= rot; // Rotate noise
             float density = fbm(noisePos + vec3(0.0, time, 0.0));
             
-            // Phase 2 #23: Temperature Gradient (Shakura-Sunyaev approximation)
-            // T ~ R^-0.75. We normalize it for color mapping.
-            float tRel = pow(uAccretionInner / diskR, 0.75);
+            // Phase 3 #25: Magnetic Fields / Filaments
+            float magneticField = pow(fbm(noisePos * 2.5 + vec3(time * 0.5)), 3.0);
             
-            // Phase 1 #27: Accretion Rate Variability
+            // Phase 2 #23: Temperature Gradient
+            float tRel = pow(uAccretionInner / diskR, 0.75);
             float accretionRate = 1.0 + 0.35 * sin(time * 0.8 + diskR * 0.4);
             
             // Realistic color mapping: Blue-hot inside, Red-cool outside
             vec3 hotColor = vec3(0.2, 0.6, 1.0); // Cyan-blue hot
             vec3 midColor = vec3(1.0, 0.4, 0.1); // Orange-red mid
             vec3 emission = mix(midColor, hotColor, tRel * 1.5 + density * 0.4);
-            emission *= accretionRate * (0.8 + tRel * 0.4);
             
-            // Phase 1 #24: Relativistic Beaming (Doppler) Enhancement
-            float beta = sqrt(uSchwarzschildRadius / (2.0 * diskR)); // Orbital velocity approx
+            // Apply magnetic filaments as bright highlights
+            emission = mix(emission, vec3(1.0, 0.95, 0.8), magneticField * 0.6);
+            emission *= accretionRate * (0.8 + tRel * 0.4 + magneticField * 0.5);
+            
+            // Phase 3 #32: Gravitational Redshift (Light loses energy near BH)
+            float redshift = sqrt(1.0 - uSchwarzschildRadius / r);
+            emission *= redshift;
+
+            // Phase 1 #24: Relativistic Beaming
+            float beta = sqrt(uSchwarzschildRadius / (2.0 * diskR)); 
             vec3 vel = normalize(vec3(-pos.z, 0.0, pos.x)); 
             float cosPhi = dot(vel, -rayDir); 
-            
-            // Relativistic Doppler Factor D
             float gamma = 1.0 / sqrt(1.0 - beta * beta);
             float dopplerD = 1.0 / (gamma * (1.0 - beta * cosPhi));
-            
-            // Emission scales by D^3 (beaming)
             float beam = pow(dopplerD, 3.0) * uDopplerStrength;
             
-            float sampleDensity = density * verticalFade * radialFade * 0.2 * uDiskDensity;
+            float sampleDensity = (density + magneticField * 0.15) * verticalFade * radialFade * 0.2 * uDiskDensity;
             accumColor += emission * beam * sampleDensity * (1.0 - accumDensity);
             accumDensity += sampleDensity;
         }
       }
       
+      // Phase 3 #21: Photon Sphere Glow (Bright ring at 1.5 * Rs)
+      if (r < uSchwarzschildRadius * 1.55 && r > uSchwarzschildRadius * 1.45) {
+          float photonDensity = smoothstep(0.0, 1.0, 1.0 - abs(r - uSchwarzschildRadius * 1.5) / (uSchwarzschildRadius * 0.05));
+          accumColor += vec3(1.0, 0.9, 0.7) * photonDensity * 0.12 * (1.0 - accumDensity);
+      }
+
       if(accumDensity >= 1.0) break;
 
       // --- Gravitational Lensing & Kerr Distortion ---
@@ -190,7 +199,7 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
       rayDir = normalize(rayDir + toCenter * bendForce * stepL);
       pos += rayDir * stepL;
       
-      if(r > uAccretionOuter * 1.5) break; // Exit volume
+      if(r > uAccretionOuter * 1.5) break; 
     }
     
     // Background Stars (if not fully occluded)

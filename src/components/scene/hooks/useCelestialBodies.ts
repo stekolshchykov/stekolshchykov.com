@@ -70,10 +70,25 @@ varying vec3 vNormal;
 varying vec3 vViewDir;
 
 void main() {
-  float fresnel = 1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0);
-  float pulse = 0.9 + 0.1 * sin(uTime * 2.4);
-  float glow = pow(fresnel, 2.35) * uPower * pulse;
-  gl_FragColor = vec4(uColor * glow, glow);
+  vec3 normal = normalize(vNormal);
+  vec3 viewDir = normalize(vViewDir);
+  
+  // Phase 3 #5: Improved scattering simulation
+  float ndv = max(dot(normal, viewDir), 0.0);
+  float fresnel = pow(1.0 - ndv, 3.5); // Sharp edge scattering
+  
+  // Add subtle volumetric pulse
+  float pulse = 0.94 + 0.06 * sin(uTime * 1.8);
+  
+  // Inner glow (Mie scattering hint)
+  float innerGlow = pow(ndv, 4.0) * 0.12;
+  
+  float glow = (fresnel + innerGlow) * uPower * pulse;
+  
+  // Dynamic turbulence in aura
+  float turb = 0.95 + 0.05 * sin(vNormal.x * 12.0 + vNormal.y * 15.0 + uTime * 2.2);
+  
+  gl_FragColor = vec4(uColor * glow * turb, glow * turb * 0.85);
 }
 `;
 
