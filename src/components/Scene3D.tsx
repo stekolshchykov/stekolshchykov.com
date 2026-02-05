@@ -6,6 +6,7 @@ import type { Locale } from '../content/stekolschikovContent';
 import { logEvent, logRuntime } from '../observability/logger';
 import { BLACK_HOLE_FRAGMENT_SHADER, BLACK_HOLE_VERTEX_SHADER, createBlackHoleUniforms } from '../scene/blackHoleShader';
 import { SUN_FRAGMENT_SHADER, SUN_VERTEX_SHADER, createSunUniforms } from '../scene/sunShader';
+import { SUN_CORONA_FRAGMENT_SHADER, SUN_CORONA_VERTEX_SHADER } from '../scene/sunCoronaShader';
 
 // USER REQUEST: Toggle for Cube Visibility
 const SHOW_CUBE = true; // Set to true to re-enable the cube
@@ -177,8 +178,35 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     // If Black Hole is conceptualized at 0,0 (shader logic), we place Sun in world space.
     // The shader handles the black hole at the "end of the tunnel".
     // We'll place the physical Sun mesh at Z: -1200, X: 400 for a majestic layout.
-    sunMesh.position.set(400, 100, -1200);
+    // We'll place the physical Sun mesh at X: 2000, Y: 150, Z: -500 to create a distinct anchor.
+    // The Black Hole is visually at (0,0, infinity).
+    sunMesh.position.set(2000, 150, -500);
     webglScene.add(sunMesh);
+
+    // --- SUN CORONA ---
+    const sunCoronaGeometry = new SphereGeometry(85, 64, 64); // Larger than sun (60)
+    const sunCoronaMaterial = new ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new Color('#ffaa00') },
+      },
+      vertexShader: SUN_CORONA_VERTEX_SHADER,
+      fragmentShader: SUN_CORONA_FRAGMENT_SHADER,
+      side: BackSide, // Render on inside of sphere? No, we want outside transparent glow.
+      // But standard fresnel works on front faces.
+      // Let's use FrontSide with Additive and fresnel that is strong at edges.
+      // Actually, standard fresnel transparency:
+      blending: AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+    });
+    // With FrontSide and standard fresnel (dot(N, V)), center is transparent, edge is opaque.
+    // This creates a halo.
+    sunCoronaMaterial.side = 0; // FrontSide (default)
+
+    const sunCoronaMesh = new Mesh(sunCoronaGeometry, sunCoronaMaterial);
+    sunCoronaMesh.position.copy(sunMesh.position);
+    webglScene.add(sunCoronaMesh);
 
     logEvent('scene.blackhole.shader.ready', { mode: 'webgl-raymarch', lowPowerMode });
 
@@ -411,6 +439,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       // Update Uniforms
       blackHoleMaterial.uniforms.uTime.value = currentTime * 0.001;
       sunMaterial.uniforms.uTime.value = currentTime * 0.001;
+      sunCoronaMaterial.uniforms.uTime.value = currentTime * 0.001;
 
       if (!isDragging) {
         currentRotationRef.current.x += velocityRef.current.x;
@@ -438,8 +467,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       let cameraRoll = 0;
       let flightEnvelope = 0;
       let flightSwirl = 0;
-      let flightOffsetX = 0;
-      let flightOffsetY = 0;
       let flightShaderYaw = 0;
       let flightShaderPitch = 0;
       cameraDistance = userCameraDistance;
@@ -561,15 +588,18 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       // If flying to Sun, shift lookAt
       if (cameraFlightRef.current.active && cameraFlightRef.current.targetSubject === 'sun') {
         // Interpolate lookAt towards Sun to frame it
-        // Not directly AT it (keep cube in view), but biased
-        const sunBias = new Vector3(200, 50, -600); // Directional pull
+        // Updated bias for new Sun Position (2000, 150, -500)
+        // We want to frame the Sun, but keep the Cube in peripheral or center?
+        // Cinematic rule: Always keep at least one subject.
+        // If we look at Sun (2000, 150, -500) from Camera (at Z=1500), we turn RIGHT.
+        const sunBias = new Vector3(800, 50, -200); // Look towards right side
         const progress = (currentTime - cameraFlightRef.current.startMs) / (lowPowerMode ? cameraFlightRef.current.durationMs * 0.82 : cameraFlightRef.current.durationMs);
         const smoothProgress = Math.min(1, Math.max(0, canvasSmoothStep(progress)));
 
-        lookAtTarget.lerp(sunBias, smoothProgress * 0.6); // 60% pull towards sun
+        lookAtTarget.lerp(sunBias, smoothProgress * 0.85); // Strong pull towards sun
       } else {
-        // Default pull towards black hole center behavior (which is forward Z)
-        // Black hole is rendered essentially at infinity in LOOK direction
+        // When focusing on Black Hole (Center/Cube), ensure we really center it.
+        // lookAt is already (0,y,0).
       }
 
       const orbitScale = 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
@@ -715,6 +745,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       blackHoleMaterial.dispose();
       sunGeometry.dispose();
       sunMaterial.dispose();
+      sunCoronaGeometry.dispose();
+      sunCoronaMaterial.dispose();
       spaceGeometries.forEach((geometry) => geometry.dispose());
       spaceMaterials.forEach((material) => material.dispose());
       spaceGeometries.forEach((geometry) => geometry.dispose());
