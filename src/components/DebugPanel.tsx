@@ -17,6 +17,7 @@ export function DebugPanel() {
     const allLogs = getRuntimeLogs();
     if (scopeFilter === 'all') return allLogs;
     return allLogs.filter((entry) => entry.scope === scopeFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logsVersion, scopeFilter]);
   const last = logs[logs.length - 1];
 

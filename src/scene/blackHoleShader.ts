@@ -8,9 +8,9 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
     uCameraInverseViewMatrix: { value: new Matrix4() }, // Added for robust ray direction
 
     // Physics Parameters
-    uSchwarzschildRadius: { value: 2.0 }, // Event Horizon
-    uAccretionInner: { value: 3.2 },      // Innermost Stable Circular Orbit (ISCO)
-    uAccretionOuter: { value: 14.0 },     // Disk fade out
+    uSchwarzschildRadius: { value: 7.0 }, // Increased from 2.0 to make it visible
+    uAccretionInner: { value: 9.0 },      // Adjusted for larger radius
+    uAccretionOuter: { value: 32.0 },     // Adjusted for larger radius
 
     // Rendering Params
     uDiskDensity: { value: lowPowerMode ? 0.8 : 1.2 },
@@ -65,11 +65,12 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     vec3 i = floor(p);
     vec3 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
+    // Simple fast 3D noise
     float n = i.x + i.y * 57.0 + i.z * 113.0;
     return mix(mix(mix(hash(i.xy), hash(i.xy + vec2(1.0, 0.0)), f.x),
                    mix(hash(i.xy + vec2(0.0, 1.0)), hash(i.xy + vec2(1.0, 1.0)), f.x), f.y),
                mix(mix(hash(i.xy + vec2(0.0, 0.0)), hash(i.xy + vec2(1.0, 0.0)), f.x),
-                   mix(hash(i.xy + vec2(0.0, 1.0)), hash(i.xy + vec2(1.0, 1.0)), f.x), f.y), f.z); // Simplified 3D noise placeholder
+                   mix(hash(i.xy + vec2(0.0, 1.0)), hash(i.xy + vec2(1.0, 1.0)), f.x), f.y), f.z);
   }
   
   // 3D Value Noise for volumetric look

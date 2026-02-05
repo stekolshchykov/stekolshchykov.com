@@ -32,7 +32,7 @@ export function SEOHead({ locale, activeFace }: SEOHeadProps) {
         }
 
         return { title: pageTitle, description: pageDesc };
-    }, [locale, activeFace, ui, source]);
+    }, [activeFace, ui, source]);
 
     const currentUrl = typeof window !== 'undefined' ? window.location.href : 'https://stekolshchykov.com';
     const imageUrl = 'https://stekolshchykov.com/me.jpg'; // We can use the public URL or the local one if deployed

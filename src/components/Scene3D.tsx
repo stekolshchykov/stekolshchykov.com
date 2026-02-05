@@ -146,7 +146,12 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const webglRenderer = new WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
     webglRenderer.setSize(window.innerWidth, window.innerHeight);
     webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
     webglContainerRef.current.appendChild(webglRenderer.domElement);
+
+    // Capture refs for cleanup
+    const cssContainerInfo = containerRef.current;
+    const webglContainerInfo = webglContainerRef.current;
 
     const blackHoleUniforms = createBlackHoleUniforms(lowPowerMode, viewportWidth, viewportHeight);
     const blackHoleGeometry = new PlaneGeometry(2, 2);
@@ -158,8 +163,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       depthWrite: false,
       depthTest: false,
     });
-    const baseBlackHoleYaw = 0;
-    const baseBlackHolePitch = 0;
     const blackHoleSky = new Mesh(blackHoleGeometry, blackHoleMaterial);
     blackHoleSky.frustumCulled = false;
     blackHoleSky.renderOrder = -1000;
@@ -178,9 +181,9 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     // If Black Hole is conceptualized at 0,0 (shader logic), we place Sun in world space.
     // The shader handles the black hole at the "end of the tunnel".
     // We'll place the physical Sun mesh at Z: -1200, X: 400 for a majestic layout.
-    // We'll place the physical Sun mesh at X: 2000, Y: 150, Z: -500 to create a distinct anchor.
+    // We'll place the physical Sun mesh at X: 700, Y: 150, Z: -600 to be closer and visible.
     // The Black Hole is visually at (0,0, infinity).
-    sunMesh.position.set(2000, 150, -500);
+    sunMesh.position.set(700, 150, -600);
     webglScene.add(sunMesh);
 
     // --- SUN CORONA ---
@@ -465,10 +468,6 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       let cameraYaw = 0;
       let cameraPitch = 0;
       let cameraRoll = 0;
-      let flightEnvelope = 0;
-      let flightSwirl = 0;
-      let flightShaderYaw = 0;
-      let flightShaderPitch = 0;
       cameraDistance = userCameraDistance;
       // Majestic distance: The hole is a distant background feature, not a close-up trap
       const shaderBaseDistance = 45.0 + (userCameraDistance / defaultCameraDistance) * 15.0;
@@ -533,16 +532,13 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
                 ? Math.max(minZoom * 0.68, minZoom - 260)
                 : minZoom;
             cameraDistance = Math.max(minDynamicZoom, Math.min(maxZoom, shotDistance));
-
-            flightShaderYaw = flight.shaderYawBias * envelope;
-            flightShaderPitch = flight.shaderPitchBias * envelope;
           }
         }
       }
 
-      const cubeTiltX = Math.sin(flightSwirl * 1.2) * 0.2 * flightEnvelope;
-      const cubeTiltY = Math.cos(flightSwirl * 0.95) * 0.32 * flightEnvelope;
-      const cubeTiltZ = Math.sin(flightSwirl * 1.55) * 0.24 * flightEnvelope;
+      const cubeTiltX = Math.sin(flightSwirl * 1.2) * 0.02 * flightEnvelope; // Reduced from 0.2
+      const cubeTiltY = Math.cos(flightSwirl * 0.95) * 0.03 * flightEnvelope; // Reduced from 0.32
+      const cubeTiltZ = Math.sin(flightSwirl * 1.55) * 0.02 * flightEnvelope; // Reduced from 0.24
       cubeGroup.rotation.x = currentRotationRef.current.x + cubeTiltX;
       cubeGroup.rotation.y = currentRotationRef.current.y + cubeTiltY;
       cubeGroup.rotation.z = cubeTiltZ;
@@ -551,12 +547,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       wireframe.rotation.z = cubeTiltZ * 1.1;
 
       // Stabilized rotation: The BH stays more centered, but tilts slightly for 3D effect
-      // Rotation handled in robust world basis loop below
-
-      baseBlackHoleYaw - cameraYaw * 0.5 - cubeTiltY * 0.2 + flightShaderYaw;
-      // Pitch handled in robust world basis loop below
-
-      baseBlackHolePitch + cameraPitch * 0.4 - cubeTiltX * 0.15 + flightShaderPitch;
+      // Rotation handled in robust world basis loop below (lines 564+)
+      // Manual calculations removed as they were unused expressions.
 
       // NEW: Static black hole (no wobbling offset), camera moves around it.
       // We removed uBlackHoleOffset, so we don't update it.
@@ -583,7 +575,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
       // --- CINEMATIC CAMERA ---
       // Determine base look target
-      let lookAtTarget = new Vector3(0, floatY, 0); // Default look at cube/center
+      const lookAtTarget = new Vector3(0, floatY, 0); // Default look at cube/center
 
       // If flying to Sun, shift lookAt
       if (cameraFlightRef.current.active && cameraFlightRef.current.targetSubject === 'sun') {
@@ -591,19 +583,28 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         // Updated bias for new Sun Position (2000, 150, -500)
         // We want to frame the Sun, but keep the Cube in peripheral or center?
         // Cinematic rule: Always keep at least one subject.
-        // If we look at Sun (2000, 150, -500) from Camera (at Z=1500), we turn RIGHT.
-        // For mobile (isPhone), we must reduce horizontal bias to keep subject in narrow frame.
+        // Sun Position: (700, 150, -600)
+        // Camera Orbit: ~1500 radius.
+
+        // We want a clear shot of the Sun.
+        // Target specific coordinates that frame the Sun well (Rule of Thirds).
         const sunBias = isPhone
-          ? new Vector3(300, 80, -300) // Less aggressive turn on mobile
-          : new Vector3(800, 50, -200); // Standard cinematic wide-turn
+          ? new Vector3(400, 100, -300) // Tighter framing on mobile
+          : new Vector3(700, 150, -600); // Look directly at Sun's approximate location
 
         const progress = (currentTime - cameraFlightRef.current.startMs) / (lowPowerMode ? cameraFlightRef.current.durationMs * 0.82 : cameraFlightRef.current.durationMs);
         const smoothProgress = Math.min(1, Math.max(0, canvasSmoothStep(progress)));
 
-        lookAtTarget.lerp(sunBias, smoothProgress * (isPhone ? 0.75 : 0.85)); // Slightly less pull on mobile
+        // When flying to sun, we override the default "LookAt Center"
+        lookAtTarget.lerp(sunBias, smoothProgress * 0.95); // 95% committment to looking at Sun
       } else {
-        // When focusing on Black Hole (Center/Cube), ensure we really center it.
-        // lookAt is already (0,y,0).
+        // When focusing on Black Hole/Cube (State: 'blackhole')
+        // We want to look effectively at (0,0,0) or slightly offset for dynamic feel
+        const bhBias = new Vector3(0, floatY * 0.5, 0);
+
+        // No heavy lerp needed if we assume default is 0,0,0, but let's smooth it back
+        // if we just transitioned FROM sun.
+        lookAtTarget.lerp(bhBias, 0.1);
       }
 
       const orbitScale = 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
@@ -684,8 +685,8 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
           burst = Math.pow(Math.max(envelope, 0), 1.45);
         }
       }
-      const explodeDistance = cubeSize * (lowPowerMode ? 0.12 : 0.22) * burst;
-      const wobbleAmount = (lowPowerMode ? 0.022 : 0.036) * burst;
+      const explodeDistance = cubeSize * (lowPowerMode ? 0.08 : 0.15) * burst; // Reduced burst distance
+      const wobbleAmount = (lowPowerMode ? 0.005 : 0.01) * burst; // Greatly reduced wobble (was 0.036)
       faceActors.forEach((face) => {
         const wave = Math.sin(currentTime * 0.009 + face.phase + rotationBurstRef.current.seed) * cubeSize * 0.007 * burst;
         face.object.position.set(
@@ -737,13 +738,17 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       interactionTarget.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mouseup', onMouseUp);
       interactionTarget.removeEventListener('wheel', onWheel);
 
-      if (containerRef.current && cssRenderer.domElement.parentNode === containerRef.current) {
-        containerRef.current.removeChild(cssRenderer.domElement);
+      window.removeEventListener('mouseup', onMouseUp);
+      interactionTarget.removeEventListener('wheel', onWheel);
+
+      if (cssContainerInfo && cssRenderer.domElement.parentNode === cssContainerInfo) {
+        cssContainerInfo.removeChild(cssRenderer.domElement);
       }
-      if (webglContainerRef.current && webglRenderer.domElement.parentNode === webglContainerRef.current) {
-        webglContainerRef.current.removeChild(webglRenderer.domElement);
+      if (webglContainerInfo && webglRenderer.domElement.parentNode === webglContainerInfo) {
+        webglContainerInfo.removeChild(webglRenderer.domElement);
       }
 
       webglRenderer.dispose();

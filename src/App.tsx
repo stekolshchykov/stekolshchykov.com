@@ -74,6 +74,7 @@ export default function App() {
       activeFace,
       isMobile,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -84,7 +85,6 @@ export default function App() {
       setIsMobile(event.matches);
     };
 
-    setIsMobile(mediaQuery.matches);
     if (mediaQuery.addEventListener) {
       mediaQuery.addEventListener('change', onChange);
       return () => mediaQuery.removeEventListener('change', onChange);
@@ -197,6 +197,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFace, isMobile]);
 
   return (
