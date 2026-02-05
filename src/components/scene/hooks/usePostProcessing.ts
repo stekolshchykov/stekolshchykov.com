@@ -37,12 +37,12 @@ export function usePostProcessing({
         const renderPass = new RenderPass(scene, camera);
         composer.addPass(renderPass);
 
-        // 2. Bloom Pass - Reduced for better balance
+        // 2. Bloom Pass - Minimal for subtle glow
         const bloomPass = new UnrealBloomPass(
             new Vector2(width, height),
-            0.45, // strength (was 1.25)
-            0.3,  // radius (was 0.45)
-            0.92  // threshold (was 0.82)
+            0.18, // strength (was 0.45)
+            0.15, // radius (was 0.3)
+            0.96  // threshold (was 0.92)
         );
         composer.addPass(bloomPass);
 

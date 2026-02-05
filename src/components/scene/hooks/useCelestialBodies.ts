@@ -627,7 +627,7 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: new Color('#ffd7a1') },
-        uIntensity: { value: lowPowerMode ? 0.15 : 0.25 },
+        uIntensity: { value: lowPowerMode ? 0.05 : 0.1 },
       },
       vertexShader: GOD_RAYS_VERTEX_SHADER,
       fragmentShader: GOD_RAYS_FRAGMENT_SHADER,
@@ -659,11 +659,11 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
     }
     const flareTex = new CanvasTexture(mainFlareCanvas);
 
-    lensflare.addElement(new LensflareElement(flareTex, 180, 0, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 48, 0.6, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 24, 0.7, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 56, 0.9, flareColor));
-    lensflare.addElement(new LensflareElement(flareTex, 32, 1.0, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 80, 0, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 20, 0.6, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 12, 0.7, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 28, 0.9, flareColor));
+    lensflare.addElement(new LensflareElement(flareTex, 16, 1.0, flareColor));
 
     lensflare.position.copy(sunMesh.position);
     if (!lowPowerMode) {
@@ -673,7 +673,7 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
 
     const sunLight = new PointLight(
       new Color('#ffd7a1'),
-      lowPowerMode ? 2.8 : 4.25,
+      lowPowerMode ? 1.8 : 2.5,
       lowPowerMode ? 3400 : 4800,
       1.5
     );
