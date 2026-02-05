@@ -18,6 +18,7 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
     uDiskRotationSpeed: { value: -4.5 },
     uDiskScreenTilt: { value: lowPowerMode ? 0.38 : 0.32 },
     uDiskScreenAngle: { value: -0.62 },
+    uMorphStrength: { value: lowPowerMode ? 0.52 : 0.78 },
     uStarDensity: { value: lowPowerMode ? 0.15 : 0.23 },
     uStarSize: { value: lowPowerMode ? 1.45 : 1.2 },
     uStarBrightness: { value: lowPowerMode ? 0.8 : 1.12 },
@@ -52,6 +53,7 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
   uniform float uDiskRotationSpeed;
   uniform float uDiskScreenTilt;
   uniform float uDiskScreenAngle;
+  uniform float uMorphStrength;
   uniform float uStarDensity;
   uniform float uStarSize;
   uniform float uStarBrightness;
@@ -202,8 +204,12 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
   void main() {
     vec2 uv = (gl_FragCoord.xy / uResolution.xy) * 2.0 - 1.0;
     uv.x *= uResolution.x / uResolution.y;
+    float closeFactor = clamp((18.0 - uCameraDistance) / 15.0, 0.0, 1.0);
+    float sceneZoom = mix(1.0, 2.8, closeFactor);
+    uv /= sceneZoom;
 
     float rs = uBlackHoleMass * 2.0;
+    float baseApparentRadius = 0.26 + rs * 0.04;
 
     vec3 camTarget = vec3(uBlackHoleOffset.x * 5.0, uBlackHoleOffset.y * 3.4, 0.0);
     float yawSin = sin(uCameraYaw);
@@ -269,13 +275,62 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
 
     if (escaped && alpha < 0.999) {
       vec3 background = vec3(0.004, 0.008, 0.014);
-      background += starField(rayDir);
-      background += nebulaField(rayDir);
+      background += starField(rayDir) + nebulaField(rayDir);
+
+      // Stronger lensing shell so nearby stars/nebula visibly bend around the event horizon.
+      vec2 bhScreenVec = uv - uBlackHoleOffset;
+      float bhScreenDist = max(length(bhScreenVec), 0.0008);
+      vec2 bhRadial = bhScreenVec / bhScreenDist;
+      vec2 bhTangent = vec2(-bhRadial.y, bhRadial.x);
+
+      float lensRadius = baseApparentRadius * (1.28 + closeFactor * 0.52);
+      float lensWidth = baseApparentRadius * (0.36 + closeFactor * 0.08);
+      float ringLens = exp(-pow((bhScreenDist - lensRadius) / lensWidth, 2.0));
+      float nearLens = exp(-pow((bhScreenDist - baseApparentRadius * 0.98) / (baseApparentRadius * 0.28), 2.0));
+      float haloLens = exp(-pow((bhScreenDist - baseApparentRadius * 2.15) / (baseApparentRadius * 0.78), 2.0));
+
+      float gravity = clamp((baseApparentRadius * (1.85 + closeFactor * 0.7)) / bhScreenDist, 0.0, 4.2);
+      float lensStrength = gravity * (0.22 + ringLens * 1.05 + nearLens * 0.62 + haloLens * 0.28);
+
+      vec2 lensUV =
+        uv +
+        bhTangent * lensStrength * baseApparentRadius * (0.62 + ringLens * 0.4) -
+        bhRadial * lensStrength * baseApparentRadius * (0.34 + nearLens * 0.18);
+
+      // Mild chromatic split reinforces the "space is bending" read without extra geometry.
+      vec2 chromaOffset = bhTangent * baseApparentRadius * (0.015 + ringLens * 0.014);
+      vec3 lensedDir = normalize(camForward + camRight * lensUV.x + camUp * lensUV.y);
+      vec3 lensedDirR = normalize(camForward + camRight * (lensUV.x + chromaOffset.x) + camUp * (lensUV.y + chromaOffset.y));
+      vec3 lensedDirB = normalize(camForward + camRight * (lensUV.x - chromaOffset.x) + camUp * (lensUV.y - chromaOffset.y));
+
+      vec3 lensedStars = starField(lensedDir);
+      vec3 lensedStarsR = starField(lensedDirR);
+      vec3 lensedStarsB = starField(lensedDirB);
+      vec3 lensedNebula = nebulaField(lensedDir);
+      vec3 lensedBackground = vec3(lensedStarsR.r, lensedStars.g, lensedStarsB.b) + lensedNebula;
+
+      float spaceStretch = clamp(ringLens * 1.4 + nearLens * 0.9 + haloLens * 0.45, 0.0, 2.6);
+      background += lensedBackground * spaceStretch;
+      background = mix(
+        background,
+        lensedBackground + vec3(0.014, 0.024, 0.04),
+        clamp(lensStrength * 0.48 + ringLens * 0.3, 0.0, 0.92)
+      );
       color += background * (1.0 - alpha);
     }
 
-    float bhScreenR = length(uv - uBlackHoleOffset);
-    float apparentRadius = 0.26 + rs * 0.04;
+    vec2 bhVec = uv - uBlackHoleOffset;
+    float bhAngle = atan(bhVec.y, bhVec.x);
+    float morphPulse = 0.5 + 0.5 * sin(uTime * 0.86);
+    float morphAmp = uMorphStrength * (0.72 + closeFactor * 0.52);
+    float angularWarp =
+      sin(bhAngle * 3.0 + uTime * 1.7) * 0.14 +
+      sin(bhAngle * 5.0 - uTime * 1.26) * 0.1 +
+      sin(bhAngle * 9.0 + uTime * 2.34) * 0.05;
+    float noiseWarp = (noise3D(vec3(cos(bhAngle) * 2.8, sin(bhAngle) * 2.8, uTime * 0.31)) - 0.5) * 2.0;
+    float warp = (angularWarp + noiseWarp * 0.18) * morphAmp * (0.7 + 0.6 * morphPulse);
+    float bhScreenR = length(bhVec) * (1.0 + warp);
+    float apparentRadius = baseApparentRadius * (1.0 + morphAmp * 0.14 * sin(uTime * 0.92));
 
     float shadowCore = 1.0 - smoothstep(apparentRadius * 0.82, apparentRadius * 0.95, bhScreenR);
     float shadowFeather = 1.0 - smoothstep(apparentRadius * 0.95, apparentRadius * 1.08, bhScreenR);
@@ -288,6 +343,8 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     color += vec3(0.96, 0.99, 1.0) * photonCore * 0.94;
     color += vec3(0.66, 0.86, 1.0) * photonRing * 0.5;
     color += vec3(0.2, 0.37, 0.58) * photonOuter * 0.15;
+    float lensArc = exp(-pow((bhScreenR - apparentRadius * 1.36) / (apparentRadius * 0.12), 2.0));
+    color += vec3(0.58, 0.78, 1.0) * lensArc * (0.22 + closeFactor * 0.18);
 
     float focusBoost = exp(-pow((bhScreenR - apparentRadius * 1.18) / (apparentRadius * 0.42), 2.0));
     color *= 1.0 + focusBoost * 0.26;
@@ -301,7 +358,13 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
       s * diskUV.x + c * diskUV.y
     );
     diskRot.y /= max(uDiskScreenTilt, 0.18);
-    float diskScreenR = length(diskRot);
+    float diskAngle = atan(diskRot.y, diskRot.x);
+    float diskWarp = sin(diskAngle * 4.0 - uTime * 1.35) * 0.12 * morphAmp;
+    vec2 diskMorphed = vec2(
+      diskRot.x * (1.0 + diskWarp),
+      diskRot.y * (1.0 - diskWarp * 0.55)
+    );
+    float diskScreenR = length(diskMorphed);
     float ellipseCore = exp(-pow((diskScreenR - apparentRadius * 1.28) / (apparentRadius * 0.09), 2.0));
     float ellipseGlow = exp(-pow((diskScreenR - apparentRadius * 1.52) / (apparentRadius * 0.2), 2.0));
     float ellipseMask = 1.0 - shadowCore * 0.8;

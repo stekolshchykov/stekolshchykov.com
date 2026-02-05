@@ -28,6 +28,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
   const targetRotationRef = useRef(targetRotation);
   const startAnimationRef = useRef<(() => void) | null>(null);
   const rotationBurstRef = useRef({ active: false, startMs: 0, seed: 0 });
+  const transitionCountRef = useRef(0);
   const cameraFlightRef = useRef({
     active: false,
     startMs: 0,
@@ -37,7 +38,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     rollAmp: 0,
     phase: 0,
     shotReady: false,
-    distanceMode: 'far' as 'near' | 'far',
+    distanceMode: 'far' as 'near' | 'far' | 'close',
     startCameraDistance: 0,
     targetCameraDistance: 0,
     startShaderDistance: 0,
@@ -58,29 +59,33 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
         startMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
         seed: rotationBurstRef.current.seed + 1,
       };
-      const nearShot = Math.random() < 0.5;
+      transitionCountRef.current += 1;
+      const shouldRunCloseShot = transitionCountRef.current % 2 === 0;
+      const distanceMode = shouldRunCloseShot ? 'close' : Math.random() < 0.5 ? 'near' : 'far';
+      const nearShot = distanceMode === 'near';
+      const closeShot = distanceMode === 'close';
       cameraFlightRef.current = {
         active: true,
         startMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
-        durationMs: nearShot ? 1260 : 1380,
-        yawAmp: (Math.random() * 2 - 1) * 0.64,
-        pitchAmp: (Math.random() * 2 - 1) * 0.3,
-        rollAmp: (Math.random() * 2 - 1) * 0.18,
+        durationMs: closeShot ? 1460 : nearShot ? 1260 : 1380,
+        yawAmp: (Math.random() * 2 - 1) * (closeShot ? 0.78 : 0.64),
+        pitchAmp: (Math.random() * 2 - 1) * (closeShot ? 0.38 : 0.3),
+        rollAmp: (Math.random() * 2 - 1) * (closeShot ? 0.22 : 0.18),
         phase: Math.random() * Math.PI * 2,
         shotReady: false,
-        distanceMode: nearShot ? 'near' : 'far',
+        distanceMode,
         startCameraDistance: 0,
         targetCameraDistance: 0,
         startShaderDistance: 0,
         targetShaderDistance: 0,
-        orbitScale: nearShot ? 1.65 : 1.15,
-        offsetX: (Math.random() * 2 - 1) * 0.3,
-        offsetY: (Math.random() * 2 - 1) * 0.2,
-        shaderYawBias: (Math.random() * 2 - 1) * 0.8,
-        shaderPitchBias: (Math.random() * 2 - 1) * 0.5,
+        orbitScale: closeShot ? 2.1 : nearShot ? 1.65 : 1.15,
+        offsetX: (Math.random() * 2 - 1) * (closeShot ? 0.18 : 0.3),
+        offsetY: (Math.random() * 2 - 1) * (closeShot ? 0.12 : 0.2),
+        shaderYawBias: (Math.random() * 2 - 1) * (closeShot ? 0.45 : 0.8),
+        shaderPitchBias: (Math.random() * 2 - 1) * (closeShot ? 0.3 : 0.5),
       };
       logRuntime('debug', 'scene3d-camera', 'Camera flight triggered', {
-        shot: nearShot ? 'near' : 'far',
+        shot: distanceMode,
         yawAmp: cameraFlightRef.current.yawAmp,
         pitchAmp: cameraFlightRef.current.pitchAmp,
         rollAmp: cameraFlightRef.current.rollAmp,
@@ -127,8 +132,10 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const scene = new Scene();
     const camera = new PerspectiveCamera(50, viewportWidth / viewportHeight, 1, 5000);
     camera.position.z = isPhone ? 1250 : isTablet ? 1400 : 1500;
+    const defaultCameraDistance = camera.position.z;
     const previousCameraPosition = new Vector3(camera.position.x, camera.position.y, camera.position.z);
-    let cameraDistance = camera.position.z;
+    let userCameraDistance = defaultCameraDistance;
+    let cameraDistance = userCameraDistance;
 
     const cssRenderer = new CSS3DRenderer();
     cssRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -154,6 +161,7 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
     const baseBlackHolePitch = blackHoleUniforms.uCameraPitch.value;
     const baseBlackHoleOffsetX = blackHoleUniforms.uBlackHoleOffset.value.x;
     const baseBlackHoleOffsetY = blackHoleUniforms.uBlackHoleOffset.value.y;
+    const defaultShaderDistance = blackHoleUniforms.uCameraDistance.value;
     const baseDiskScreenAngle = blackHoleUniforms.uDiskScreenAngle.value;
     const baseDiskScreenTilt = blackHoleUniforms.uDiskScreenTilt.value;
     const blackHoleSky = new Mesh(blackHoleGeometry, blackHoleMaterial);
@@ -365,11 +373,11 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      cameraDistance += e.deltaY * 0.5;
-      cameraDistance = Math.max(minZoom, Math.min(maxZoom, cameraDistance));
+      userCameraDistance += e.deltaY * 0.5;
+      userCameraDistance = Math.max(minZoom, Math.min(maxZoom, userCameraDistance));
       logRuntime('debug', 'scene3d-controls', 'Zoom changed', {
         deltaY: e.deltaY,
-        cameraZ: cameraDistance,
+        cameraZ: userCameraDistance,
       });
       startAnimationRef.current?.();
     };
@@ -444,25 +452,37 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
       let flightOffsetY = 0;
       let flightShaderYaw = 0;
       let flightShaderPitch = 0;
+      cameraDistance = userCameraDistance;
+      const shaderZoomScale = userCameraDistance / defaultCameraDistance;
+      const shaderBaseDistance = defaultShaderDistance * shaderZoomScale;
+      blackHoleMaterial.uniforms.uCameraDistance.value = shaderBaseDistance;
       if (!prefersReducedMotion && cameraFlightRef.current.active) {
         const flight = cameraFlightRef.current;
         if (!flight.shotReady) {
-          flight.startCameraDistance = cameraDistance;
-          if (flight.distanceMode === 'near') {
-            flight.targetCameraDistance = Math.max(minZoom * 0.8, minZoom - 120);
-            flight.targetShaderDistance = lowPowerMode
-              ? 12 + Math.random() * 4
-              : 7 + Math.random() * 4.6;
+          flight.startCameraDistance = userCameraDistance;
+          if (flight.distanceMode === 'close') {
+            flight.targetCameraDistance = Math.max(minZoom * 0.52, 420);
+            flight.targetShaderDistance = Math.max(
+              lowPowerMode ? 4.2 : 2.6,
+              shaderBaseDistance * (lowPowerMode ? 0.28 : 0.18)
+            );
+          } else if (flight.distanceMode === 'near') {
+            flight.targetCameraDistance = Math.max(minZoom * 0.72, minZoom - 180);
+            flight.targetShaderDistance = Math.max(
+              lowPowerMode ? 7 : 4.8,
+              shaderBaseDistance * (lowPowerMode ? 0.46 : 0.36)
+            );
           } else {
             flight.targetCameraDistance = Math.min(
               maxZoom * 0.82,
               minZoom + (maxZoom - minZoom) * 0.42 + Math.random() * 80
             );
-            flight.targetShaderDistance = lowPowerMode
-              ? 24 + Math.random() * 9
-              : 32 + Math.random() * 18;
+            flight.targetShaderDistance = Math.min(
+              lowPowerMode ? 30 : 42,
+              shaderBaseDistance * (lowPowerMode ? 1.34 : 1.52)
+            );
           }
-          flight.startShaderDistance = blackHoleMaterial.uniforms.uCameraDistance.value;
+          flight.startShaderDistance = shaderBaseDistance;
           flight.shotReady = true;
           logRuntime('info', 'scene3d-camera', 'Camera shot configured', {
             shot: flight.distanceMode,
@@ -477,16 +497,14 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
           : flight.durationMs;
         const progress = (currentTime - flight.startMs) / durationMs;
         if (progress >= 1) {
-          const finalDistance = flight.shotReady ? flight.targetCameraDistance : cameraDistance;
-          cameraDistance = Math.max(minZoom, Math.min(maxZoom, finalDistance));
-          if (flight.shotReady) {
-            blackHoleMaterial.uniforms.uCameraDistance.value = flight.targetShaderDistance;
-          }
+          cameraDistance = userCameraDistance;
+          blackHoleMaterial.uniforms.uCameraDistance.value = shaderBaseDistance;
           cameraFlightRef.current.active = false;
         } else {
           const eased = progress < 0.5
             ? 4 * progress * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+          const distancePulse = Math.sin(Math.PI * eased);
           const envelope = Math.pow(Math.sin(Math.PI * progress), 1.1);
           const swirl = progress * Math.PI * 2.8 + flight.phase;
           flightEnvelope = envelope;
@@ -498,11 +516,16 @@ export function Scene3D({ targetRotation, locale }: Scene3DProps) {
 
           if (flight.shotReady) {
             const shotDistance =
-              flight.startCameraDistance + (flight.targetCameraDistance - flight.startCameraDistance) * eased;
-            cameraDistance = Math.max(minZoom, Math.min(maxZoom, shotDistance));
+              flight.startCameraDistance + (flight.targetCameraDistance - flight.startCameraDistance) * distancePulse;
+            const minDynamicZoom = flight.distanceMode === 'close'
+              ? Math.max(minZoom * 0.42, 360)
+              : flight.distanceMode === 'near'
+              ? Math.max(minZoom * 0.68, minZoom - 260)
+              : minZoom;
+            cameraDistance = Math.max(minDynamicZoom, Math.min(maxZoom, shotDistance));
 
             const shaderDistance =
-              flight.startShaderDistance + (flight.targetShaderDistance - flight.startShaderDistance) * eased;
+              flight.startShaderDistance + (flight.targetShaderDistance - flight.startShaderDistance) * distancePulse;
             blackHoleMaterial.uniforms.uCameraDistance.value = shaderDistance;
 
             flightOffsetX = flight.offsetX * envelope;
