@@ -2,6 +2,7 @@ import { useEffect, useRef, RefObject } from 'react';
 import {
   AdditiveBlending,
   BackSide,
+  CanvasTexture,
   Color,
   DoubleSide,
   Group,
@@ -656,7 +657,6 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 128, 128);
     }
-    const { CanvasTexture } = (window as any).THREE || require('three');
     const flareTex = new CanvasTexture(mainFlareCanvas);
 
     lensflare.addElement(new LensflareElement(flareTex, 180, 0, flareColor));
