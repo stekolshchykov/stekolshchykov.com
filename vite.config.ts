@@ -81,15 +81,15 @@ export default defineConfig({
     },
   },
   server: {
-    // Ensure `http://localhost:<port>` works on systems where localhost prefers IPv6 (::1).
-    // Vite's `host: true` binds to 0.0.0.0 (IPv4) which can make `localhost` fail.
+    // Bind IPv6 any-address so `localhost` (which often resolves to ::1) works.
+    // On macOS this is typically dual-stack (also accepts IPv4/127.0.0.1).
     host: '::',
     port: 4173,
     strictPort: true,
     open: false,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
+    // NOTE: Do not set COOP/COEP by default.
+    // The cube "business card" scene loads some third-party assets (e.g. QR images) which
+    // get blocked under COEP=require-corp. If we ever need crossOriginIsolation again,
+    // make it opt-in via an env flag.
   },
 });
