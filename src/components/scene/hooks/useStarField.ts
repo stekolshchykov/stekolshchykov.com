@@ -16,6 +16,7 @@ interface StarFieldConfig {
   sceneRef: RefObject<Scene | null>;
   lowPowerMode: boolean;
   initialized: boolean;
+  enabled?: boolean;
 }
 
 interface StarQualityPreset {
@@ -31,7 +32,7 @@ interface ParticleInfo {
 
 const CINEMA_DENSITY_SCALE = 1;
 
-export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldConfig) {
+export function useStarField({ sceneRef, lowPowerMode, initialized, enabled = true }: StarFieldConfig) {
   const deepStarsRef = useRef<Points | null>(null);
   const particleGroupRef = useRef<Group | null>(null);
   const deepStarsMaterialRef = useRef<ShaderMaterial | null>(null);
@@ -49,7 +50,7 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !initialized) return;
+    if (!enabled || !scene || !initialized) return;
 
     const deepStarCount = Math.floor((lowPowerMode ? 3400 : 8600) * CINEMA_DENSITY_SCALE);
     const deepStarSpread = lowPowerMode ? 8200 : 11800;
@@ -278,7 +279,7 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
       deepStarCountRef.current = 0;
       particleCountRef.current = 0;
     };
-  }, [sceneRef, lowPowerMode, initialized]);
+  }, [enabled, sceneRef, lowPowerMode, initialized]);
 
   const applyQuality = (preset: StarQualityPreset) => {
     qualityRef.current = preset;
@@ -314,6 +315,7 @@ export function useStarField({ sceneRef, lowPowerMode, initialized }: StarFieldC
     flightEnvelope = 0,
     cameraSpeed = 0
   ) => {
+    if (!enabled) return;
     if (!deepStarsRef.current || !particleGroupRef.current || !particleInfoRef.current) return;
     if (!Number.isFinite(deltaTime) || deltaTime <= 0) return;
 

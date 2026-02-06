@@ -11,6 +11,7 @@ interface PostProcessingConfig {
     camera: PerspectiveCamera | null;
     initialized: boolean;
     lowPowerMode: boolean;
+    enabled?: boolean;
 }
 
 export function usePostProcessing({
@@ -19,11 +20,13 @@ export function usePostProcessing({
     camera,
     initialized,
     lowPowerMode,
+    enabled = true,
 }: PostProcessingConfig) {
     const composerRef = useRef<EffectComposer | null>(null);
 
     useEffect(() => {
-        if (!initialized || !renderer || !scene || !camera || lowPowerMode) {
+        if (!enabled || !initialized || !renderer || !scene || !camera || lowPowerMode) {
+            composerRef.current?.dispose?.();
             composerRef.current = null;
             return;
         }
@@ -53,10 +56,11 @@ export function usePostProcessing({
         composerRef.current = composer;
 
         return () => {
+            composer.dispose?.();
             composerRef.current = null;
             // Passes are disposed by the composer or can be disposed manually if needed
         };
-    }, [initialized, renderer, scene, camera, lowPowerMode]);
+    }, [enabled, initialized, renderer, scene, camera, lowPowerMode]);
 
     // Handle Resize
     useEffect(() => {

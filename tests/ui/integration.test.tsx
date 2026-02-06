@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import App from '../../src/legacy/CubeApp';
 
 // Mock react-helmet-async to avoid HelmetProvider context error
@@ -329,7 +329,7 @@ describe('State Persistence', () => {
     render(<App />);
 
     const ruButton = screen.getByRole('button', { name: 'RU' });
-    ruButton.click();
+    fireEvent.click(ruButton);
 
     await waitFor(() => {
       expect(mockStorage.setItem).toHaveBeenCalledWith('stekolschikov-locale', 'ru');

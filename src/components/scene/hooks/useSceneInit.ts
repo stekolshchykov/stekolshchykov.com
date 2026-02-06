@@ -63,6 +63,8 @@ export function useSceneInit({
             webglRenderer.outputColorSpace = SRGBColorSpace;
             webglRenderer.toneMapping = ACESFilmicToneMapping;
             webglRenderer.toneMappingExposure = 1.08;
+            // Keep the WebGL layer transparent so an underlying background (e.g. Singularity) can show through.
+            webglRenderer.setClearColor(0x000000, 0);
             webglContainerRef.current.appendChild(webglRenderer.domElement);
             webglRendererRef.current = webglRenderer;
 

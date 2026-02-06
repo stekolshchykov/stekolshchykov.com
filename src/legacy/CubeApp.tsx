@@ -8,6 +8,7 @@ import { FACE_CODES, FACE_ROTATIONS, getDirectionByKey, NAV_BY_FACE, type Direct
 import { UIKeyButton, UILangButton } from '../ui-kit';
 import { logEvent, logRuntime } from '../observability/logger';
 import { installAudioAutoStart, playButtonSound, playRotationSound } from '../audio/soundscape';
+import { SingularityBackground } from '../singularity/SingularityBackground';
 
 const Scene3D = lazy(() => import('../components/Scene3D').then((m) => ({ default: m.Scene3D })));
 
@@ -262,8 +263,14 @@ export default function CubeApp() {
         />
       ) : (
         <div className="cube-app">
+          <SingularityBackground />
           <Suspense fallback={<div className="scene-fallback" />}>
-            <Scene3D targetRotation={FACE_ROTATIONS[activeFace]} locale={locale} onReady={handleSceneReady} />
+            <Scene3D
+              targetRotation={FACE_ROTATIONS[activeFace]}
+              locale={locale}
+              onReady={handleSceneReady}
+              withSingularityBackground
+            />
           </Suspense>
 
           <header className="cube-header">

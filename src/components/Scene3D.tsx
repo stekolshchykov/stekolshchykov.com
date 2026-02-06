@@ -21,9 +21,17 @@ interface Scene3DProps {
   onReady?: () => void;
   isGameMode?: boolean;
   joystickInput?: { x: number; y: number };
+  withSingularityBackground?: boolean;
 }
 
-export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, joystickInput = { x: 0, y: 0 } }: Scene3DProps) {
+export function Scene3D({
+  targetRotation,
+  locale,
+  onReady,
+  isGameMode = false,
+  joystickInput = { x: 0, y: 0 },
+  withSingularityBackground = false,
+}: Scene3DProps) {
   // --- Constants & Config ---
   const containerRef = useRef<HTMLDivElement>(null);
   const webglContainerRef = useRef<HTMLDivElement>(null);
@@ -77,7 +85,8 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
   const { updateStarField, applyQuality: applyStarQuality } = useStarField({
     sceneRef: webglSceneRef,
     lowPowerMode,
-    initialized
+    initialized,
+    enabled: !withSingularityBackground,
   });
 
   const { composerRef } = usePostProcessing({
@@ -85,7 +94,8 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
     scene: webglSceneRef.current,
     camera: cameraRef.current,
     initialized,
-    lowPowerMode
+    lowPowerMode,
+    enabled: !withSingularityBackground,
   });
 
   const { qualityTier, qualityPreset, reportFrame } = useAdaptiveQuality({
@@ -112,7 +122,7 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
 
   useEffect(() => {
     applyStarQuality({
-      starDensity: qualityPreset.starDensity,
+      starDensity: withSingularityBackground ? 0 : qualityPreset.starDensity,
       starTwinkle: qualityPreset.starTwinkle,
     });
     const webglRenderer = webglRendererRef.current;
@@ -291,7 +301,7 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
       const effectiveLookAt = lookAtOverride ?? lookAtTarget;
 
       const camera = cameraRef.current;
-      if (camera) {
+    if (camera) {
         const desiredCameraPosition = new Vector3();
         if (cameraOverridePosition) {
           desiredCameraPosition.copy(cameraOverridePosition);
@@ -323,7 +333,9 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
         previousCameraPosition.copy(camera.position);
         const rotationSpeed = Math.hypot(velocityRef.current.x, velocityRef.current.y) / Math.max(deltaSeconds, 1 / 240);
         const rotationBoost = rotationSpeed * (lowPowerMode ? 1600 : 2600);
-        updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
+        if (!withSingularityBackground) {
+          updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
+        }
       }
 
       // 6. Update Cube Jitter/Wobble
@@ -488,7 +500,7 @@ export function Scene3D({ targetRotation, locale, onReady, isGameMode = false, j
     // Refs in dependencies is generally safe but technically unnecessary as they are stable.
     // However, we include `initialized` which is the signal that refs are ready.
     cameraFlightRef, cameraRef, cssRendererRef, currentRotationRef, isDraggingRef,
-    rotationBurstRef, sceneRef, userCameraDistanceRef, velocityRef, webglRendererRef, webglSceneRef, onReady
+    rotationBurstRef, sceneRef, userCameraDistanceRef, velocityRef, webglRendererRef, webglSceneRef, onReady, withSingularityBackground
   ]);
 
   return (

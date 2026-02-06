@@ -38,7 +38,7 @@ export function SEOHead({ locale, activeFace }: SEOHeadProps) {
     const imageUrl = 'https://stekolshchykov.com/me.jpg'; // We can use the public URL or the local one if deployed
 
     return (
-        <Helmet>
+        <Helmet htmlAttributes={{ lang: locale }}>
             <title>{title}</title>
             <meta name="description" content={description} />
 
@@ -55,8 +55,6 @@ export function SEOHead({ locale, activeFace }: SEOHeadProps) {
             <meta property="twitter:title" content={title} />
             <meta property="twitter:description" content={description} />
             <meta property="twitter:image" content={imageUrl} />
-
-            <html lang={locale} />
         </Helmet>
     );
 }
