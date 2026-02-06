@@ -6,16 +6,28 @@ function hasWebGPU(): boolean {
   return typeof navigator !== 'undefined' && typeof (navigator as unknown as { gpu?: unknown }).gpu !== 'undefined';
 }
 
+type JoystickInput = { x: number; y: number };
+
 /**
  * Fullscreen black hole background used behind the cube "business card" UI.
  * - No preloader, no gizmo, no debug panel.
  * - Pointer events disabled so it never steals interaction from the cube UI.
  * - Falls back to deterministic WebGL shader when WebGPU isn't available.
  */
-export function SingularityBackground() {
+export function SingularityBackground(props: { isGameMode?: boolean; joystickInput?: JoystickInput }) {
+  const { isGameMode = false, joystickInput = { x: 0, y: 0 } } = props;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const debugRootRef = useRef<HTMLDivElement | null>(null);
   const gizmoRootRef = useRef<HTMLDivElement | null>(null);
+
+  const isGameModeRef = useRef(false);
+  const joystickRef = useRef<JoystickInput>({ x: 0, y: 0 });
+
+  // Keep the animation loop reading stable refs (avoid recreating the scene on each prop change).
+  useEffect(() => {
+    isGameModeRef.current = isGameMode;
+    joystickRef.current = joystickInput;
+  }, [isGameMode, joystickInput]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -56,6 +68,8 @@ export function SingularityBackground() {
               fallbackTimer = null;
             }
           },
+          getCameraMode: () => (isGameModeRef.current ? 'joystick' : 'auto'),
+          getJoystickInput: () => joystickRef.current,
           forceWebGL,
           showDebugPanel: false,
           showGizmo: false,

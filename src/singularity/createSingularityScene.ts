@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import type { SingularityDiagnostics } from './SingularityView';
 
+export type SingularityCameraMode = 'auto' | 'joystick' | 'static';
+
 function lerpAngle(current: number, target: number, t: number): number {
   // Interpolate angles taking the shortest path around the circle.
   // Three.js doesn't ship a `MathUtils.lerpAngle`, so we keep it local.
@@ -165,6 +167,8 @@ export async function createSingularityScene(params: {
   diagnostics: SingularityDiagnostics;
   onFirstFrame?: () => void;
   getTargetRotation?: () => { x: number; y: number } | null;
+  getCameraMode?: () => SingularityCameraMode;
+  getJoystickInput?: () => { x: number; y: number };
   forceWebGL?: boolean;
   showDebugPanel?: boolean;
   showGizmo?: boolean;
@@ -178,6 +182,8 @@ export async function createSingularityScene(params: {
     diagnostics,
     onFirstFrame,
     getTargetRotation,
+    getCameraMode,
+    getJoystickInput,
     forceWebGL,
     showDebugPanel = true,
     showGizmo = true,
@@ -362,6 +368,33 @@ export async function createSingularityScene(params: {
   controls.maxDistance = 1000;
   controls.target.set(0, 0, 0);
 
+  // ------------------------------------------------------------------
+  // CAMERA RIG (AUTO OR JOYSTICK-DRIVEN)
+  // ------------------------------------------------------------------
+  //
+  // For the cube background we want a smooth "fly-through" around the singularity.
+  // When game mode is enabled, we let a virtual joystick drive the orbit instead.
+  const defaultCameraMode: SingularityCameraMode = controlsEnabled ? 'static' : 'auto';
+
+  // Spherical rig around the origin (target).
+  let rigTheta = Math.atan2(camera.position.x, camera.position.z);
+  let rigRadius = camera.position.length();
+  let rigPhi = Math.atan2(camera.position.y, Math.sqrt(camera.position.x * camera.position.x + camera.position.z * camera.position.z));
+
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const applyRigToCamera = () => {
+    const cp = Math.cos(rigPhi);
+    const sp = Math.sin(rigPhi);
+    const x = rigRadius * cp * Math.sin(rigTheta);
+    const y = rigRadius * sp;
+    const z = rigRadius * cp * Math.cos(rigTheta);
+    camera.position.set(x, y, z);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+  };
+
+  applyRigToCamera();
+
   // Gizmo helper (drawn in a dedicated root to avoid polluting document.body).
   gizmoRootEl.innerHTML = '';
   const gizmo = await (async () => {
@@ -431,8 +464,41 @@ export async function createSingularityScene(params: {
   // ------------------------------------------------------------------
 
   let firstFrameFired = false;
+  let lastFrameTime = performance.now();
 
   renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    const dt = clamp((now - lastFrameTime) / 1000, 1 / 240, 0.05);
+    lastFrameTime = now;
+
+    const mode = getCameraMode?.() ?? defaultCameraMode;
+    if (mode === 'auto') {
+      const t = now / 1000;
+      const targetTheta = t * 0.11 + Math.sin(t * 0.23) * 0.22;
+      const targetPhi = 0.22 + Math.sin(t * 0.17) * 0.06;
+      const targetRadius = 3.1 + Math.sin(t * 0.11) * 0.55 + Math.sin(t * 0.041) * 0.18;
+
+      const follow = 1 - Math.exp(-dt * 1.25);
+      rigTheta = lerpAngle(rigTheta, targetTheta, follow);
+      rigPhi = rigPhi + (targetPhi - rigPhi) * follow;
+      rigRadius = rigRadius + (targetRadius - rigRadius) * follow;
+
+      applyRigToCamera();
+    } else if (mode === 'joystick') {
+      const input = getJoystickInput?.() ?? { x: 0, y: 0 };
+      const dead = 0.06;
+      const ix = Math.abs(input.x) < dead ? 0 : input.x;
+      const iy = Math.abs(input.y) < dead ? 0 : input.y;
+
+      // x: orbit around; y: in/out (towards the singularity).
+      rigTheta += ix * dt * 1.35;
+      rigRadius = clamp(rigRadius + (-iy) * dt * 3.0, 1.65, 10.0);
+      // Keep a pleasing, stable inclination (prevents motion sickness).
+      rigPhi = clamp(rigPhi, 0.12, 0.46);
+
+      applyRigToCamera();
+    }
+
     if (controlsEnabled) controls.update();
     gizmo?.update?.();
     debugPanel?.update();

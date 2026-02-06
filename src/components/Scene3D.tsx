@@ -208,13 +208,12 @@ export function Scene3D({
     const cubeWorldPos = new Vector3();
     const cameraDirection = new Vector3();
     const faceOutward = new Vector3();
-    const previousCameraPosition = new Vector3();
-    const smoothedCameraPosition = new Vector3();
-    const smoothedLookAt = new Vector3();
-    let hasSmoothedCamera = false;
-    let hasPreviousCameraPosition = false;
-    const faceFlashTimeouts = new Map<number, number>();
-    let activeFaceIndex = -1;
+	    const previousCameraPosition = new Vector3();
+	    const smoothedCameraPosition = new Vector3();
+	    const smoothedLookAt = new Vector3();
+	    let hasSmoothedCamera = false;
+	    let hasPreviousCameraPosition = false;
+	    let activeFaceIndex = -1;
 
     const animate = (currentTime: number) => {
       animationId = 0;
@@ -417,20 +416,6 @@ export function Scene3D({
             const activeFaceElement = faceActors[nextActiveFaceIndex]?.object.element;
             if (activeFaceElement) {
               activeFaceElement.classList.add('cube-face-shell--active');
-              if (!prefersReducedMotion) {
-                activeFaceElement.classList.remove('cube-face-shell--flash');
-                void activeFaceElement.getBoundingClientRect();
-                activeFaceElement.classList.add('cube-face-shell--flash');
-                const existingTimeout = faceFlashTimeouts.get(nextActiveFaceIndex);
-                if (existingTimeout !== undefined) {
-                  window.clearTimeout(existingTimeout);
-                }
-                const timeout = window.setTimeout(() => {
-                  activeFaceElement.classList.remove('cube-face-shell--flash');
-                  faceFlashTimeouts.delete(nextActiveFaceIndex);
-                }, lowPowerMode ? 340 : 620);
-                faceFlashTimeouts.set(nextActiveFaceIndex, timeout);
-              }
             }
           }
 
@@ -484,17 +469,13 @@ export function Scene3D({
 
     window.addEventListener('resize', handleResize);
 
-    return () => {
-      cancelAnimationFrame(animationId);
-      window.removeEventListener('resize', handleResize);
-      faceFlashTimeouts.forEach((timeout) => {
-        window.clearTimeout(timeout);
-      });
-      faceFlashTimeouts.clear();
-      animationId = 0;
-      startAnimationRef.current = null;
-    };
-  }, [
+	    return () => {
+	      cancelAnimationFrame(animationId);
+	      window.removeEventListener('resize', handleResize);
+	      animationId = 0;
+	      startAnimationRef.current = null;
+	    };
+	  }, [
     initialized, targetFPS, lowPowerMode, floatAmplitude, cubeSize, activeFaceOpacity, inactiveFaceOpacity, prefersReducedMotion,
     updatePhysics, updateCameraFlight, updateStarField, reportFrame, qualityPreset,
     // Refs in dependencies is generally safe but technically unnecessary as they are stable.
