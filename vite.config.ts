@@ -81,7 +81,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
-    open: true,
+    // Ensure `http://localhost:<port>` works on systems where localhost prefers IPv6 (::1).
+    // Vite's `host: true` binds to 0.0.0.0 (IPv4) which can make `localhost` fail.
+    host: '::',
+    port: 4173,
+    strictPort: true,
+    open: false,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
 });

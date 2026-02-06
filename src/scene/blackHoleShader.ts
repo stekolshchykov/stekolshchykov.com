@@ -6,57 +6,50 @@ export function createBlackHoleUniforms(lowPowerMode: boolean, width: number, he
     uResolution: { value: new Vector2(width, height) },
     uCameraWorldPos: { value: new Vector3(0, 0, 30) },
     uCameraInverseViewMatrix: { value: new Matrix4() },
+    uSunPosition: { value: new Vector3(0, 0, 0) }, // Scaled position for interaction
 
-    // Physics Parameters - scaled for camera distance
-    // Camera is at ~1500 world units, scaled by 0.02 = ~30 shader units
-    // Accretion disk should be visible from this distance
-    uSchwarzschildRadius: { value: 4.0 },
-    uAccretionInner: { value: 6.0 },
-    uAccretionOuter: { value: 25.0 },
-
-    // Rendering Params
-    uDiskDensity: { value: lowPowerMode ? 1.0 : 1.5 },
-    uDiskNoiseScale: { value: 1.5 },
-    uDopplerStrength: { value: 1.0 },
-    uLensingStrength: { value: 0.8 },
-
-    // Starfield Integration
-    uStarDensity: { value: 0.15 },
-    uStarBrightness: { value: 3.0 },
+    // Physics constants
+    uSchwarzschildRadius: { value: 5.0 }, // Event Horizon Radius
+    uDiskInner: { value: 1.5 }, // Multiplier of Rs
+    uDiskOuter: { value: 6.0 }, // Multiplier of Rs
+    uDiskAlpha: { value: lowPowerMode ? 0.8 : 1.2 },
   };
 }
 
 export const BLACK_HOLE_VERTEX_SHADER = `
-  varying vec2 vUv;
+  varying vec3 vLocalPos; // Added
+
   void main() {
     vUv = uv;
-    gl_Position = vec4(position.xy, 1.0, 1.0); // Fullscreen quad
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPos = worldPosition.xyz;
+    vLocalPos = position; // Pass local pos
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
   }
 `;
 
 export const BLACK_HOLE_FRAGMENT_SHADER = `
   uniform float uTime;
   uniform vec2 uResolution;
-  
   uniform vec3 uCameraWorldPos;
   uniform mat4 uCameraInverseViewMatrix;
-
+  uniform vec3 uSunPosition; // Scaled sun position
+  
   uniform float uSchwarzschildRadius;
-  uniform float uAccretionInner;
-  uniform float uAccretionOuter;
+  uniform float uDiskInner;
+  uniform float uDiskOuter;
+  uniform float uDiskAlpha;
 
-  uniform float uDiskDensity;
-  uniform float uDiskNoiseScale;
-  uniform float uDopplerStrength;
-  uniform float uLensingStrength;
-
+  varying vec3 vWorldPos;
+  varying vec3 vLocalPos; // Receive
   varying vec2 vUv;
 
-  #define MAX_STEPS 96
-  #define STEP_SIZE 0.1
+
+  #define MAX_STEPS 48
+  #define STEP_SIZE 0.06
   #define PI 3.14159265359
 
-  // --- Noise Functions ---
+  // --- Noise Functions for Accretion Disk Texture ---
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
     p += dot(p, p + vec2(45.32));
@@ -67,153 +60,109 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     vec3 i = floor(p);
     vec3 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    // Simple fast 3D noise
     float n = i.x + i.y * 57.0 + i.z * 113.0;
     return mix(mix(mix(hash(i.xy), hash(i.xy + vec2(1.0, 0.0)), f.x),
                    mix(hash(i.xy + vec2(0.0, 1.0)), hash(i.xy + vec2(1.0, 1.0)), f.x), f.y),
                mix(mix(hash(i.xy + vec2(0.0, 0.0)), hash(i.xy + vec2(1.0, 0.0)), f.x),
                    mix(hash(i.xy + vec2(0.0, 1.0)), hash(i.xy + vec2(1.0, 1.0)), f.x), f.y), f.z);
   }
-  
-  // 3D Value Noise for volumetric look
+
   float fbm(vec3 p) {
     float f = 0.0;
     float w = 0.5;
     for (int i = 0; i < 4; i++) {
-      f += w * noise(p);
-      p *= 2.02;
-      w *= 0.5;
+        f += w * noise(p);
+        p *= 2.02;
+        w *= 0.5;
     }
     return f;
   }
 
-  // --- Color Palettes ---
-  vec3 getBlackbody(float t) {
-    // Kelvin-ish color mapping
-    return 0.5 * vec3(1.0, 0.5, 0.1) * exp(t) + vec3(0.1, 0.2, 0.8) * exp(-t*0.5);
-  }
-
-  // --- Main Raymarching ---
   void main() {
-    vec2 uv = (vUv - 0.5) * 2.0;
-    uv.x *= uResolution.x / uResolution.y;
+    // Volumetric Raymarching from Surface Inwards
+    // vec3 bhCenter ... removed modelMatrix dependency
+    vec3 localPos = vLocalPos; 
 
-    // Camera Ray Generation
-    vec4 rayDir4 = uCameraInverseViewMatrix * vec4(normalize(vec3(uv, -1.5)), 0.0);
-    vec3 rayDir = normalize(rayDir4.xyz);
-    vec3 camPos = uCameraWorldPos; // Scaled world pos from JS
     
-    vec3 pos = camPos;
-    vec3 accumColor = vec3(0.0);
-    float accumDensity = 0.0;
+    vec3 rayDir = normalize(vWorldPos - uCameraWorldPos);
+    vec3 currPos = localPos; // Start marching at surface, in local-ish space (aligned with world axes)
     
-    // Pre-calculate rotation for disk animation
-    float time = uTime * 0.4;
+    // Note: If the group is Rotated, localPos is Rotated. But rayDir is World.
+    // If we march in currPos using rayDir, we mix spaces if rotation exists.
+    // BH only rotates nicely on Y.
+    // Let's assume standard orientation for physics, or minimal rotation.
+    
+    vec3 col = vec3(0.0);
+    float alpha = 0.0;
+    
+    float Rs = uSchwarzschildRadius;
+    float innerR = Rs * uDiskInner;
+    float outerR = Rs * uDiskOuter;
+    
+    // Animation
+    float time = uTime * 0.5;
     mat2 rot = mat2(cos(time), sin(time), -sin(time), cos(time));
-
-    // Phase 2 #19: Kerr spin parameter (near-maximal 0.99)
-    float a = 0.99; 
-
-    for(int i = 0; i < MAX_STEPS; i++) {
-      float r = length(pos);
-      
-      // Event Horizon
-      if(r < uSchwarzschildRadius) {
-        accumColor = mix(accumColor, vec3(0.0), 1.0 - accumDensity); // Black out core
-        accumDensity = 1.0;
-        break;
-      }
-      
-      // --- Accretion Disk Volumetric Sampling ---
-      // Flatten the coordinate space to a disk
-      float diskH = abs(pos.y);
-      float diskR = length(pos.xz);
-      
-      if(diskR > uAccretionInner && diskR < uAccretionOuter) {
-        // Volumetric bounds
-        float verticalFade = smoothstep(0.8, 0.0, diskH); // Thin disk
-        float radialFade = smoothstep(uAccretionInner, uAccretionInner + 1.0, diskR) * smoothstep(uAccretionOuter, uAccretionOuter - 4.0, diskR);
+    
+    for(int i=0; i<48; i++) {
+        float r = length(currPos);
         
-        if(verticalFade > 0.01 && radialFade > 0.01) {
-            // Turbulence
-            vec3 noisePos = pos * uDiskNoiseScale;
-            noisePos.xz *= rot; // Rotate noise
-            float density = fbm(noisePos + vec3(0.0, time, 0.0));
-            
-            // Phase 3 #25: Magnetic Fields / Filaments
-            float magneticField = pow(fbm(noisePos * 2.5 + vec3(time * 0.5)), 3.0);
-            
-            // Phase 2 #23: Temperature Gradient
-            float tRel = pow(uAccretionInner / diskR, 0.75);
-            float accretionRate = 1.0 + 0.35 * sin(time * 0.8 + diskR * 0.4);
-            
-            // Realistic color mapping: Blue-hot inside, Red-cool outside
-            vec3 hotColor = vec3(0.2, 0.6, 1.0); // Cyan-blue hot
-            vec3 midColor = vec3(1.0, 0.4, 0.1); // Orange-red mid
-            vec3 emission = mix(midColor, hotColor, tRel * 1.5 + density * 0.4);
-            
-            // Apply magnetic filaments as bright highlights
-            emission = mix(emission, vec3(1.0, 0.95, 0.8), magneticField * 0.6);
-            emission *= accretionRate * (0.8 + tRel * 0.4 + magneticField * 0.5);
-            
-            // Phase 3 #32: Gravitational Redshift (Light loses energy near BH)
-            float redshift = sqrt(1.0 - uSchwarzschildRadius / r);
-            emission *= redshift;
-
-            // Phase 1 #24: Relativistic Beaming
-            float beta = sqrt(uSchwarzschildRadius / (2.0 * diskR)); 
-            vec3 vel = normalize(vec3(-pos.z, 0.0, pos.x)); 
-            float cosPhi = dot(vel, -rayDir); 
-            float gamma = 1.0 / sqrt(1.0 - beta * beta);
-            float dopplerD = 1.0 / (gamma * (1.0 - beta * cosPhi));
-            float beam = pow(dopplerD, 3.0) * uDopplerStrength;
-            
-            float sampleDensity = (density + magneticField * 0.15) * verticalFade * radialFade * 0.2 * uDiskDensity;
-            accumColor += emission * beam * sampleDensity * (1.0 - accumDensity);
-            accumDensity += sampleDensity;
+        // Event Horizon (Black Void)
+        if(r < Rs) {
+            col = vec3(0.0); // Black
+            alpha = 1.0; 
+            break;
         }
-      }
-      
-      // Phase 3 #21: Photon Sphere Glow (Bright ring at 1.5 * Rs)
-      if (r < uSchwarzschildRadius * 1.55 && r > uSchwarzschildRadius * 1.45) {
-          float photonDensity = smoothstep(0.0, 1.0, 1.0 - abs(r - uSchwarzschildRadius * 1.5) / (uSchwarzschildRadius * 0.05));
-          accumColor += vec3(1.0, 0.9, 0.7) * photonDensity * 0.12 * (1.0 - accumDensity);
-      }
-
-      if(accumDensity >= 1.0) break;
-
-      // --- Gravitational Lensing & Kerr Distortion ---
-      vec3 toCenter = normalize(-pos);
-      float distSq = dot(pos, pos);
-      
-      // Newtonian + General Relativity bend approximation
-      float bendForce = (uSchwarzschildRadius * 6.0 * uLensingStrength) / (distSq * 1.5);
-      
-      // Phase 2 #33: Frame Dragging (Spacetime rotation near spinning BH)
-      float omega = a / (distSq + a*a); // Simplified frame dragging
-      rayDir.xz = mat2(cos(omega), sin(omega), -sin(omega), cos(omega)) * rayDir.xz;
-
-      // Variable step size
-      float stepL = STEP_SIZE * (1.0 + r * 0.1); 
-      
-      rayDir = normalize(rayDir + toCenter * bendForce * stepL);
-      pos += rayDir * stepL;
-      
-      if(r > uAccretionOuter * 1.5) break; 
+        
+        // Accretion Disk (XZ Plane Volume)
+        // Distance to plane
+        float h = abs(currPos.y);
+        float dR = length(currPos.xz);
+        
+        if(h < 1.5 && dR > innerR && dR < outerR) {
+             // Sample Density
+             float fade = smoothstep(1.5, 0.0, h) * smoothstep(innerR, innerR+1.0, dR) * smoothstep(outerR, outerR-2.0, dR);
+             
+             if(fade > 0.01) {
+                 // Texture
+                 vec3 pTex = currPos * 0.5;
+                 pTex.zx *= rot; // Rotate disk
+                 float den = fbm(pTex + vec3(0.0, time, 0.0));
+                 
+                 // Temperature Gradient (Hotter inside)
+                 vec3 hot = vec3(0.1, 0.4, 1.0); // Blue Center
+                 vec3 cold = vec3(1.0, 0.3, 0.05); // Red Edge
+                 vec3 c = mix(cold, hot, smoothstep(outerR, innerR, dR));
+                 
+                 float emission = den * fade * uDiskAlpha * 0.15;
+                 
+                 // Additive blend
+                 col += c * emission * (1.0 - alpha);
+                 alpha += emission;
+             }
+        }
+        
+        if(alpha > 0.98) break;
+        
+        // Gravity Bending (Fake)
+        // Pull ray towards origin
+        vec3 toCenter = normalize(-currPos);
+        float dist = r;
+        float bend = (Rs * 15.0) / (dist*dist + 1.0);
+        rayDir = normalize(rayDir + toCenter * bend * STEP_SIZE * 0.2);
+        
+        // Step
+        currPos += rayDir * STEP_SIZE * (dist * 0.15 + 1.0); // Adaptive step
+        
+        if(r > 600.0) break; // Exited sphere
     }
     
-    // Background Stars (if not fully occluded)
-    if(accumDensity < 1.0) {
-        // Simple starfield for background
-        float star = pow(hash(rayDir.xy * 20.0), 20.0) * 0.5;
-        accumColor += vec3(star) * (1.0 - accumDensity);
+    // Background distortion (Lensing)
+    // If not opaque, add background stars distorted by rayDir
+    if(alpha < 1.0) {
+        float stars = pow(hash(rayDir.xy * 50.0), 30.0);
+        col += vec3(stars) * (1.0 - alpha);
     }
-    
-    // Tone mapping
-    accumColor = accumColor / (accumColor + vec3(1.0));
-    accumColor = pow(accumColor, vec3(0.4545)); // Gamma
 
-    gl_FragColor = vec4(accumColor, 1.0);
+    gl_FragColor = vec4(col, alpha);
   }
 `;
-

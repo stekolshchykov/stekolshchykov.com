@@ -5,6 +5,12 @@ node_modules/
 build/
 dist/
 
+# Local-only assets and scratch space (not committed)
+public/.local/
+tmp/
+test-results/
+playwright-report/
+
 # IDE
 .idea/
 .vscode/

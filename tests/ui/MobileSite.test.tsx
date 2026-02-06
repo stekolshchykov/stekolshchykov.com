@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MobileSite } from '../../src/components/MobileSite';
 import { uiTexts, sourceTexts, skillsRecent, skillsBefore, type Locale } from '../../src/content/stekolschikovContent';
-import { getMaskedContactValue } from '../../src/features/contacts';
 
 // Helper to set mobile viewport
 function setMobileViewport() {

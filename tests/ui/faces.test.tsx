@@ -12,7 +12,6 @@ import {
   skillsRecent,
   skillsBefore,
   workItems,
-  contactLinks,
   type Locale,
 } from '../../src/content/stekolschikovContent';
 

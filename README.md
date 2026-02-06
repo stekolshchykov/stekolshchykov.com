@@ -9,6 +9,10 @@
 ```bash
 npm i
 npm run dev
+# or ensure dev server stays on 4173 with logs
+npm run dev:serve
+# check if it is up
+npm run dev:check
 ```
 
 ## Production build

@@ -360,10 +360,10 @@ export const skillsBefore: SkillItem[] = [
 ];
 
 export const contactLinks: ContactLinks = {
-  "email": "v.a.stekolschikov@gmail.com",
+  "email": "stekolshchykov@gmail.com",
   "skype": "v.a.stekolschikov",
-  "phone": "+380990775663",
-  "telegram": "@stekolschikov"
+  "phone": "0879906161",
+  "telegram": "@stekolshchykov",
 };
 
 export const personalSiteUrl = "https://stekolshchykov.com";

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import App from '../../src/App';
+import App from '../../src/legacy/CubeApp';
 
 // Mock react-helmet-async to avoid HelmetProvider context error
 vi.mock('react-helmet-async', () => ({

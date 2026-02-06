@@ -1,8 +1,8 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import App from '../../src/App';
-import { NAV_BY_FACE, FACE_CODES } from '../../src/navigation';
-import { uiTexts, type Locale } from '../../src/content/stekolschikovContent';
+import App from '../../src/legacy/CubeApp';
+import { NAV_BY_FACE } from '../../src/navigation';
+import { uiTexts } from '../../src/content/stekolschikovContent';
 
 // Mock react-helmet-async to avoid HelmetProvider context error
 vi.mock('react-helmet-async', () => ({
