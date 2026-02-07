@@ -278,6 +278,8 @@ export function Scene3D({
       const deltaSeconds = deltaTime / 1000;
       reportFrame(deltaSeconds);
 
+      const camera = cameraRef.current;
+
       // 1. Update Physics / Camera Controls
       if (!isGameMode) {
         updatePhysics(lowPowerMode, deltaSeconds);
