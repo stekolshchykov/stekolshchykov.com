@@ -151,7 +151,7 @@ export function createSingularityColorNode(
 
       // Local measures in XY plane and rotating UVs
       const xyLen = lengthSqrt(rayPos.mul(vec3(1, 1, 0)));
-      const rotPhase = xyLen.mul(4.270).sub(time.mul(0.1));
+      const rotPhase = xyLen.mul(4.270).sub(time.mul(0.15));
       const uvAxis = vec3(0, 0, 1);
       const uvRot = rayPos.mul(rotateAxis(uvAxis, rotPhase));
       const uv = uvRot.mul(2);
