@@ -386,7 +386,6 @@ export default function CubeApp() {
 
                     <UIKeyButton
                       className="key-down"
-                      active
                       code={FACE_CODES[NAV_BY_FACE[activeFace].down]}
                       direction="down"
                       label={faceLabels[NAV_BY_FACE[activeFace].down]}
