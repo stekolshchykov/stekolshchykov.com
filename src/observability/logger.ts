@@ -14,6 +14,7 @@ export type LogEventName =
   | 'scene.performance.mode'
   | 'scene.render.visibility'
   | 'scene.cube.created'
+  | 'scene.cube.visibility'
   | 'scene.celestial.ready';
 
 export interface RuntimeLogEntry {
