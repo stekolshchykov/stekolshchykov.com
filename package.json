@@ -92,6 +92,7 @@
             "test": "vitest run",
             "e2e:install": "playwright install --with-deps",
             "e2e": "playwright test",
+            "test:e2e": "npm run e2e",
             "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
             "deploy": "gh-pages -d build",
             "validate": "npm run lint && npm run test && npm run build && sonar-scanner",
