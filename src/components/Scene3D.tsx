@@ -74,7 +74,6 @@ export function Scene3D({
   const gameYawRef = useRef(0);
   const gamePitchRef = useRef(0);
   const gamePositionRef = useRef(new Vector3());
-  const gamePositionRef = useRef(new Vector3());
   const gameInitializedRef = useRef(false);
 
   // Store latest input in refs to avoid stale closures in animation loop
@@ -310,8 +309,6 @@ export function Scene3D({
         const cam = cameraRef.current;
         const moveSpeed = lowPowerMode ? 55 : 75;
         const lookSpeed = lowPowerMode ? 2.8 : 4.6;
-        const moveSpeed = lowPowerMode ? 55 : 75;
-        const lookSpeed = lowPowerMode ? 2.8 : 4.6;
         const jx = joystickInputRef.current.x;
         const jy = joystickInputRef.current.y;
         const lx = lookJoystickInputRef.current.x;
@@ -352,6 +349,11 @@ export function Scene3D({
       }
       const camera = cameraRef.current;
       if (camera) {
+        // Initialize flight variables with defaults so they are available for cube effects
+        let flightEnvelope = 0;
+        let flightSwirl = 0;
+        let burst = 0;
+
         if (isGameMode && gameCameraOverride && gameLookAtOverride) {
           camera.position.copy(gameCameraOverride);
           camera.lookAt(gameLookAtOverride);
@@ -359,23 +361,27 @@ export function Scene3D({
         } else {
           // 3. Cinematic Flight & Camera Position
           const lookAtTarget = new Vector3(0, floatY, 0);
-          const {
-            cameraDistance = 1500,
-            cameraYaw = 0,
-            cameraPitch = 0,
-            cameraRoll = 0,
-            flightEnvelope = 0,
-            flightSwirl = 0,
-            burst = 0,
-            cameraOverridePosition = null,
-            lookAtOverride = null
-          } = updateCameraFlight(
+          const flightData = updateCameraFlight(
             currentTime,
             userCameraDistanceRef.current,
             floatY,
             lookAtTarget,
             qualityPreset.motionScale
           ) || {};
+
+          const {
+            cameraDistance = 1500,
+            cameraYaw = 0,
+            cameraPitch = 0,
+            cameraRoll = 0,
+            cameraOverridePosition = null,
+            lookAtOverride = null
+          } = flightData;
+
+          // Extract values needed for outer scope
+          flightEnvelope = flightData.flightEnvelope ?? 0;
+          flightSwirl = flightData.flightSwirl ?? 0;
+          burst = flightData.burst ?? 0;
 
           // Calculate Camera Position
           const orbitScale = lockCameraToActiveFace ? 0 : 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
