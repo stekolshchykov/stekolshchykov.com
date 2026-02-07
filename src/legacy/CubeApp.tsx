@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import '../app.css';
 import { type Locale, uiTexts } from '../content/stekolschikovContent';
 import { MobileSite } from '../components/MobileSite';
@@ -220,6 +221,29 @@ export default function CubeApp() {
     }, 180);
   };
 
+  const createJoystickHandler = (
+    setter: Dispatch<SetStateAction<{ x: number; y: number }>>
+  ) => (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const rect = target.getBoundingClientRect();
+    const updateJoystick = (ev: PointerEvent) => {
+      const x = ((ev.clientX - rect.left) / rect.width - 0.5) * 2;
+      const y = ((ev.clientY - rect.top) / rect.height - 0.5) * 2;
+      setter({ x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) });
+    };
+    updateJoystick(e.nativeEvent as PointerEvent);
+    const handleMove = (ev: PointerEvent) => updateJoystick(ev);
+    const handleUp = () => {
+      setter({ x: 0, y: 0 });
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  };
+
   const changeFace = (faceId: FaceId, withPulse = false, trigger?: { source: 'key' | 'click'; key?: string; direction?: Direction }) => {
     const current = activeFace;
     const currentNav = NAV_BY_FACE[current];
@@ -341,26 +365,7 @@ export default function CubeApp() {
                   <div className="joystick-container">
                     <div
                       className="joystick-pad"
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        const target = e.currentTarget;
-                        target.setPointerCapture(e.pointerId);
-                        const rect = target.getBoundingClientRect();
-                        const updateJoystick = (ev: PointerEvent) => {
-                          const x = ((ev.clientX - rect.left) / rect.width - 0.5) * 2;
-                          const y = ((ev.clientY - rect.top) / rect.height - 0.5) * 2;
-                          setJoystickInput({ x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) });
-                        };
-                        updateJoystick(e.nativeEvent as PointerEvent);
-                        const handleMove = (ev: PointerEvent) => updateJoystick(ev);
-                        const handleUp = () => {
-                          setJoystickInput({ x: 0, y: 0 });
-                          window.removeEventListener('pointermove', handleMove);
-                          window.removeEventListener('pointerup', handleUp);
-                        };
-                        window.addEventListener('pointermove', handleMove);
-                        window.addEventListener('pointerup', handleUp);
-                      }}
+                      onPointerDown={createJoystickHandler(setJoystickInput)}
                       aria-label="Move joystick"
                     >
                       <div
@@ -371,6 +376,21 @@ export default function CubeApp() {
                       />
                     </div>
                     <span className="joystick-label">MOVE</span>
+                  </div>
+                  <div className="joystick-container">
+                    <div
+                      className="joystick-pad joystick-pad--look"
+                      onPointerDown={createJoystickHandler(setLookJoystickInput)}
+                      aria-label="Look joystick"
+                    >
+                      <div
+                        className="joystick-knob joystick-knob--look"
+                        style={{
+                          transform: `translate(${lookJoystickInput.x * 40}px, ${lookJoystickInput.y * 40}px)`,
+                        }}
+                      />
+                    </div>
+                    <span className="joystick-label joystick-label--look">LOOK</span>
                   </div>
                 </div>
               ) : (
