@@ -270,7 +270,11 @@ export function Scene3D({
       reportFrame(deltaSeconds);
 
       // 1. Update Physics / Camera Controls
-      updatePhysics(lowPowerMode, deltaSeconds);
+      // Only update orbital controls if NOT in game mode.
+      // In Game Mode, we use the joystick logic below (step 2b).
+      if (!isGameMode) {
+        updatePhysics(lowPowerMode, deltaSeconds);
+      }
 
       // 2. Float Animation (Visibility is handled by useCubeSystem hook)
       const floatY = Math.sin(currentTime * 0.00035) * floatAmplitude;
