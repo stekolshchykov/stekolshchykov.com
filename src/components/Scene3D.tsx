@@ -21,6 +21,7 @@ interface Scene3DProps {
   onReady?: () => void;
   isGameMode?: boolean;
   joystickInput?: { x: number; y: number };
+  lookJoystickInput?: { x: number; y: number };
   withSingularityBackground?: boolean;
 }
 
@@ -30,6 +31,7 @@ export function Scene3D({
   onReady,
   isGameMode = false,
   joystickInput = { x: 0, y: 0 },
+  lookJoystickInput = { x: 0, y: 0 },
   withSingularityBackground = false,
 }: Scene3DProps) {
   // --- Constants & Config ---
@@ -69,6 +71,23 @@ export function Scene3D({
   const maxZoom = lockCameraToActiveFace ? defaultCameraDistance : Math.max(2200, cubeSize * 2.5);
 
   const startAnimation = () => startAnimationRef.current?.();
+  const gameYawRef = useRef(0);
+  const gamePitchRef = useRef(0);
+  const gamePositionRef = useRef(new Vector3());
+  const gamePositionRef = useRef(new Vector3());
+  const gameInitializedRef = useRef(false);
+
+  // Store latest input in refs to avoid stale closures in animation loop
+  const joystickInputRef = useRef(joystickInput);
+  const lookJoystickInputRef = useRef(lookJoystickInput);
+
+  useEffect(() => {
+    joystickInputRef.current = joystickInput;
+  }, [joystickInput]);
+
+  useEffect(() => {
+    lookJoystickInputRef.current = lookJoystickInput;
+  }, [lookJoystickInput]);
 
   // --- Hooks Initialization ---
 
@@ -133,6 +152,22 @@ export function Scene3D({
     }
     logEvent('scene.performance.mode', { qualityTier }, 'debug');
   }, [applyStarQuality, maxPixelRatio, qualityPreset, qualityTier, webglRendererRef]);
+
+  useEffect(() => {
+    if (!cameraRef.current) return;
+    if (isGameMode) {
+      const cam = cameraRef.current;
+      const dir = new Vector3();
+      cam.getWorldDirection(dir);
+      const clampedY = Math.max(-0.999, Math.min(0.999, dir.y));
+      gameYawRef.current = Math.atan2(dir.x, dir.z);
+      gamePitchRef.current = Math.asin(clampedY);
+      gamePositionRef.current.copy(cam.position);
+      gameInitializedRef.current = true;
+    } else {
+      gameInitializedRef.current = false;
+    }
+  }, [cameraRef, isGameMode]);
 
   // Sync Input Target
   useEffect(() => {
@@ -208,12 +243,18 @@ export function Scene3D({
     const cubeWorldPos = new Vector3();
     const cameraDirection = new Vector3();
     const faceOutward = new Vector3();
-	    const previousCameraPosition = new Vector3();
-	    const smoothedCameraPosition = new Vector3();
-	    const smoothedLookAt = new Vector3();
-	    let hasSmoothedCamera = false;
-	    let hasPreviousCameraPosition = false;
-	    let activeFaceIndex = -1;
+    const gameForward = new Vector3();
+    const gameRight = new Vector3();
+    const gameUp = new Vector3(0, 1, 0);
+    const gameLookTarget = new Vector3();
+    const desiredCameraPosition = new Vector3();
+    const gameMove = new Vector3();
+    const previousCameraPosition = new Vector3();
+    const smoothedCameraPosition = new Vector3();
+    const smoothedLookAt = new Vector3();
+    let hasSmoothedCamera = false;
+    let hasPreviousCameraPosition = false;
+    let activeFaceIndex = -1;
 
     const animate = (currentTime: number) => {
       animationId = 0;
@@ -222,6 +263,12 @@ export function Scene3D({
       // Motion Check Optimization
       const rotationErrorX = targetRotationRef.current.x - currentRotationRef.current.x;
       const rotationErrorY = targetRotationRef.current.y - currentRotationRef.current.y;
+      const hasJoystickMotion =
+        isGameMode &&
+        (Math.abs(joystickInput.x) > 0.01 ||
+          Math.abs(joystickInput.y) > 0.01 ||
+          Math.abs(lookJoystickInput.x) > 0.01 ||
+          Math.abs(lookJoystickInput.y) > 0.01);
       const hasMotion =
         isDraggingRef.current ||
         cameraFlightRef.current.active ||
@@ -229,7 +276,8 @@ export function Scene3D({
         Math.abs(rotationErrorX) > 0.0006 ||
         Math.abs(rotationErrorY) > 0.0006 ||
         Math.abs(velocityRef.current.x) > 0.0002 ||
-        Math.abs(velocityRef.current.y) > 0.0002;
+        Math.abs(velocityRef.current.y) > 0.0002 ||
+        hasJoystickMotion;
 
       if (lowPowerMode && hasRenderedOnce && !hasMotion) {
         return;
@@ -249,91 +297,127 @@ export function Scene3D({
       // 2. Float Animation & Game Mode Cube Visibility
       const floatY = Math.sin(currentTime * 0.00035) * floatAmplitude;
       if (cubeRefs.current) {
-        // Hide cube in game mode
-        cubeRefs.current.cubeGroup.visible = !isGameMode;
-        cubeRefs.current.wireframe.visible = !isGameMode;
-
-        if (!isGameMode) {
-          cubeRefs.current.cubeGroup.position.y = floatY;
-          cubeRefs.current.wireframe.position.y = floatY;
-        }
+        cubeRefs.current.cubeGroup.visible = true;
+        cubeRefs.current.wireframe.visible = true;
+        cubeRefs.current.cubeGroup.position.y = floatY;
+        cubeRefs.current.wireframe.position.y = floatY;
       }
 
       // 2b. Joystick-based free flight in game mode (super fast - reach sun in ~10 sec)
+      let gameCameraOverride: Vector3 | null = null;
+      let gameLookAtOverride: Vector3 | null = null;
       if (isGameMode && cameraRef.current) {
         const cam = cameraRef.current;
-        const speed = 90; // Very fast movement (sun is at ~880 units away)
-        const jx = joystickInput.x;
-        const jy = joystickInput.y;
+        const moveSpeed = lowPowerMode ? 55 : 75;
+        const lookSpeed = lowPowerMode ? 2.8 : 4.6;
+        const moveSpeed = lowPowerMode ? 55 : 75;
+        const lookSpeed = lowPowerMode ? 2.8 : 4.6;
+        const jx = joystickInputRef.current.x;
+        const jy = joystickInputRef.current.y;
+        const lx = lookJoystickInputRef.current.x;
+        const ly = lookJoystickInputRef.current.y;
 
-        // Move camera based on joystick input
-        cam.position.x += jx * speed;
-        cam.position.z += jy * speed;
+        if (!gameInitializedRef.current) {
+          const dir = new Vector3();
+          cam.getWorldDirection(dir);
+          const clampedY = Math.max(-0.999, Math.min(0.999, dir.y));
+          gameYawRef.current = Math.atan2(dir.x, dir.z);
+          gamePitchRef.current = Math.asin(clampedY);
+          gamePositionRef.current.copy(cam.position);
+          gameInitializedRef.current = true;
+        }
+
+        const lookStep = Math.max(deltaSeconds, 1 / 120) * 1.4;
+        gameYawRef.current += lx * lookSpeed * lookStep;
+        gamePitchRef.current += ly * lookSpeed * lookStep;
+        gamePitchRef.current = Math.max(-1.2, Math.min(1.2, gamePitchRef.current));
+
+        const cosPitch = Math.cos(gamePitchRef.current);
+        gameForward.set(
+          Math.sin(gameYawRef.current) * cosPitch,
+          Math.sin(gamePitchRef.current),
+          Math.cos(gameYawRef.current) * cosPitch
+        ).normalize();
+        gameRight.crossVectors(gameForward, gameUp).normalize();
+
+        gameMove.set(0, 0, 0);
+        gameMove.addScaledVector(gameForward, jy);
+        gameMove.addScaledVector(gameRight, jx);
+        if (gameMove.lengthSq() > 0.0001) {
+          gameMove.normalize();
+        }
+        gamePositionRef.current.addScaledVector(gameMove, moveSpeed * deltaSeconds);
+        gameCameraOverride = gamePositionRef.current;
+        gameLookAtOverride = gameLookTarget.copy(gamePositionRef.current).addScaledVector(gameForward, 200);
       }
-
-      // 3. Cinematic Flight & Camera Position
-      const lookAtTarget = new Vector3(0, floatY, 0);
-      const {
-        cameraDistance = 1500,
-        cameraYaw = 0,
-        cameraPitch = 0,
-        cameraRoll = 0,
-        flightEnvelope = 0,
-        flightSwirl = 0,
-        burst = 0,
-        cameraOverridePosition = null,
-        lookAtOverride = null
-      } = updateCameraFlight(
-        currentTime,
-        userCameraDistanceRef.current,
-        floatY,
-        lookAtTarget,
-        qualityPreset.motionScale
-      ) || {};
-
-      // Calculate Camera Position
-      const orbitScale = lockCameraToActiveFace ? 0 : 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
-      const cameraOrbitRadius = lockCameraToActiveFace ? 0 : Math.max(56, cameraDistance * (0.072 * orbitScale));
-      const cameraOffsetX = Math.sin(cameraYaw) * cameraOrbitRadius;
-      const cameraOffsetY = Math.sin(cameraPitch) * cameraOrbitRadius * 0.42;
-      const cameraOffsetZ = Math.cos(cameraYaw) * cameraOrbitRadius * 0.16;
-      const effectiveLookAt = lookAtOverride ?? lookAtTarget;
-
       const camera = cameraRef.current;
-    if (camera) {
-        const desiredCameraPosition = new Vector3();
-        if (cameraOverridePosition) {
-          desiredCameraPosition.copy(cameraOverridePosition);
+      if (camera) {
+        if (isGameMode && gameCameraOverride && gameLookAtOverride) {
+          camera.position.copy(gameCameraOverride);
+          camera.lookAt(gameLookAtOverride);
+          camera.rotation.z = 0;
         } else {
-          desiredCameraPosition.set(cameraOffsetX, floatY + cameraOffsetY, cameraDistance + cameraOffsetZ);
-        }
+          // 3. Cinematic Flight & Camera Position
+          const lookAtTarget = new Vector3(0, floatY, 0);
+          const {
+            cameraDistance = 1500,
+            cameraYaw = 0,
+            cameraPitch = 0,
+            cameraRoll = 0,
+            flightEnvelope = 0,
+            flightSwirl = 0,
+            burst = 0,
+            cameraOverridePosition = null,
+            lookAtOverride = null
+          } = updateCameraFlight(
+            currentTime,
+            userCameraDistanceRef.current,
+            floatY,
+            lookAtTarget,
+            qualityPreset.motionScale
+          ) || {};
 
-        if (!hasSmoothedCamera) {
-          hasSmoothedCamera = true;
-          smoothedCameraPosition.copy(desiredCameraPosition);
-          smoothedLookAt.copy(effectiveLookAt);
-        } else {
-          const cameraBlend = Math.min(1, Math.max(0.06, 1 - Math.exp(-deltaSeconds * 6.6)));
-          smoothedCameraPosition.lerp(desiredCameraPosition, cameraBlend);
-          smoothedLookAt.lerp(effectiveLookAt, cameraBlend * 0.9);
-        }
+          // Calculate Camera Position
+          const orbitScale = lockCameraToActiveFace ? 0 : 1 + flightEnvelope * (cameraFlightRef.current.orbitScale - 1);
+          const cameraOrbitRadius = lockCameraToActiveFace ? 0 : Math.max(56, cameraDistance * (0.072 * orbitScale));
+          const cameraOffsetX = Math.sin(cameraYaw) * cameraOrbitRadius;
+          const cameraOffsetY = Math.sin(cameraPitch) * cameraOrbitRadius * 0.42;
+          const cameraOffsetZ = Math.cos(cameraYaw) * cameraOrbitRadius * 0.16;
+          const effectiveLookAt = lookAtOverride ?? lookAtTarget;
 
-        camera.position.copy(smoothedCameraPosition);
-        camera.lookAt(smoothedLookAt);
-        camera.rotation.z = cameraRoll * qualityPreset.motionScale;
+          if (cameraOverridePosition) {
+            desiredCameraPosition.copy(cameraOverridePosition);
+          } else {
+            desiredCameraPosition.set(cameraOffsetX, floatY + cameraOffsetY, cameraDistance + cameraOffsetZ);
+          }
 
-        // 4. Update Star Field
-        let cameraSpeed = 0;
-        if (hasPreviousCameraPosition) {
-          cameraSpeed = camera.position.distanceTo(previousCameraPosition) / Math.max(deltaSeconds, 1 / 240);
-        } else {
-          hasPreviousCameraPosition = true;
-        }
-        previousCameraPosition.copy(camera.position);
-        const rotationSpeed = Math.hypot(velocityRef.current.x, velocityRef.current.y) / Math.max(deltaSeconds, 1 / 240);
-        const rotationBoost = rotationSpeed * (lowPowerMode ? 1600 : 2600);
-        if (!withSingularityBackground) {
-          updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
+          if (!hasSmoothedCamera) {
+            hasSmoothedCamera = true;
+            smoothedCameraPosition.copy(desiredCameraPosition);
+            smoothedLookAt.copy(effectiveLookAt);
+          } else {
+            const cameraBlend = Math.min(1, Math.max(0.06, 1 - Math.exp(-deltaSeconds * 6.6)));
+            smoothedCameraPosition.lerp(desiredCameraPosition, cameraBlend);
+            smoothedLookAt.lerp(effectiveLookAt, cameraBlend * 0.9);
+          }
+
+          camera.position.copy(smoothedCameraPosition);
+          camera.lookAt(smoothedLookAt);
+          camera.rotation.z = cameraRoll * qualityPreset.motionScale;
+
+          // 4. Update Star Field
+          let cameraSpeed = 0;
+          if (hasPreviousCameraPosition) {
+            cameraSpeed = camera.position.distanceTo(previousCameraPosition) / Math.max(deltaSeconds, 1 / 240);
+          } else {
+            hasPreviousCameraPosition = true;
+          }
+          previousCameraPosition.copy(camera.position);
+          const rotationSpeed = Math.hypot(velocityRef.current.x, velocityRef.current.y) / Math.max(deltaSeconds, 1 / 240);
+          const rotationBoost = rotationSpeed * (lowPowerMode ? 1600 : 2600);
+          if (!withSingularityBackground) {
+            updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
+          }
         }
       }
 
@@ -469,13 +553,13 @@ export function Scene3D({
 
     window.addEventListener('resize', handleResize);
 
-	    return () => {
-	      cancelAnimationFrame(animationId);
-	      window.removeEventListener('resize', handleResize);
-	      animationId = 0;
-	      startAnimationRef.current = null;
-	    };
-	  }, [
+    return () => {
+      cancelAnimationFrame(animationId);
+      window.removeEventListener('resize', handleResize);
+      animationId = 0;
+      startAnimationRef.current = null;
+    };
+  }, [
     initialized, targetFPS, lowPowerMode, floatAmplitude, cubeSize, activeFaceOpacity, inactiveFaceOpacity, prefersReducedMotion,
     updatePhysics, updateCameraFlight, updateStarField, reportFrame, qualityPreset,
     // Refs in dependencies is generally safe but technically unnecessary as they are stable.
