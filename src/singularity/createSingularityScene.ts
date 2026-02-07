@@ -133,8 +133,8 @@ function createWebGLFallbackMaterial(): THREE.ShaderMaterial {
         float ring = smoothRing(r, 0.38, 0.055);
         // Swirl modulation
         float a = atan(uv.y, uv.x);
-        float swirl = 0.6 + 0.4 * sin(8.0 * a + 14.0 * r - uTime * 0.7);
-        float n = hash21(uv * 40.0 + uTime * 0.05);
+        float swirl = 0.6 + 0.4 * sin(8.0 * a + 14.0 * r - uTime * 1.05);
+        float n = hash21(uv * 40.0 + uTime * 0.075);
         ring *= (0.55 + 0.65 * swirl) * (0.7 + 0.6 * n);
 
         vec3 hot = vec3(1.35, 0.82, 0.35);
@@ -341,6 +341,68 @@ export async function createSingularityScene(params: {
   const mesh = new THREEGPU.Mesh(geometry, material);
   scene.add(mesh);
 
+  // ------------------------------------------------------------------
+  // DUST OBJECTS (small orbiting particles around the singularity)
+  // ------------------------------------------------------------------
+  const dustGroup = new THREEGPU.Group();
+  const dustGeometry = new THREEGPU.SphereGeometry(0.035, 8, 8);
+
+  type DustParticle = {
+    mesh: THREEGPU.Mesh;
+    radius: number;
+    speed: number;
+    angle: number;
+    height: number;
+    lensStrength: number;
+  };
+  const dustParticles: DustParticle[] = [];
+  const dustCount = 28;
+  for (let i = 0; i < dustCount; i++) {
+    const radius = 1.65 + Math.random() * 1.4;
+    const speed = 0.35 + Math.random() * 0.6;
+    const angle = Math.random() * Math.PI * 2;
+    const height = (Math.random() - 0.5) * 0.22;
+    const particleMaterial = new THREEGPU.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: {
+        uLensStrength: { value: 0.24 + Math.random() * 0.22 },
+        uRedshift: { value: 0.55 + Math.random() * 0.35 },
+        uBaseColor: { value: new THREEGPU.Color(0.85, 0.92, 1.0) },
+        uWarmColor: { value: new THREEGPU.Color(1.0, 0.65, 0.35) },
+      },
+      vertexShader: /* glsl */ `
+        uniform float uLensStrength;
+        varying float vRedshift;
+        void main() {
+          vec3 p = position;
+          float r = length(p);
+          float inv = uLensStrength / (r * r + 0.06);
+          vec3 warped = p + normalize(p) * inv;
+          vRedshift = clamp(1.1 - r * 0.35, 0.25, 1.2);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(warped, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uRedshift;
+        uniform vec3 uBaseColor;
+        uniform vec3 uWarmColor;
+        varying float vRedshift;
+        void main() {
+          float t = clamp(vRedshift * uRedshift, 0.0, 1.0);
+          vec3 col = mix(uBaseColor, uWarmColor, t);
+          gl_FragColor = vec4(col, 0.6);
+        }
+      `,
+    });
+    const particle = new THREEGPU.Mesh(dustGeometry, particleMaterial);
+    particle.scale.setScalar(0.7 + Math.random() * 0.7);
+    dustGroup.add(particle);
+    const lensStrength = (particleMaterial.uniforms.uLensStrength.value as number) ?? 0.3;
+    dustParticles.push({ mesh: particle, radius, speed, angle, height, lensStrength });
+  }
+  scene.add(dustGroup);
+
   // Optional: subtle wireframe cube (useful when running the scene standalone).
   let cubeGroup: THREE.Object3D | null = null;
   let cubeGeometry: THREE.BufferGeometry | null = null;
@@ -497,6 +559,20 @@ export async function createSingularityScene(params: {
       rigPhi = clamp(rigPhi, 0.12, 0.46);
 
       applyRigToCamera();
+    }
+
+    // Update dust orbits with simple lens-like warp near the core
+    for (const dust of dustParticles) {
+      dust.angle += dt * dust.speed;
+      const x = Math.cos(dust.angle) * dust.radius;
+      const z = Math.sin(dust.angle) * dust.radius;
+      const baseY = dust.height;
+      const r = Math.sqrt(x * x + z * z + baseY * baseY);
+      const inv = dust.lensStrength / (r * r + 0.1);
+      const warpX = x + (x / r) * inv;
+      const warpY = baseY + (baseY / r) * inv;
+      const warpZ = z + (z / r) * inv;
+      dust.mesh.position.set(warpX, warpY, warpZ);
     }
 
     if (controlsEnabled) controls.update();
