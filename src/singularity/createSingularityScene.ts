@@ -277,15 +277,14 @@ export async function createSingularityScene(params: {
   const uniforms = createDefaultSingularityUniforms();
 
   // ------------------------------------------------------------------
-  // ASSETS (local first + public fallback)
+  // ASSETS (public, normalized names)
   // ------------------------------------------------------------------
 
   const texLoader = new THREE.TextureLoader();
 
-  const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('.local/singularity/nebula.png');
-  const nebulaBackupUrl = publicUrl('.local/singularity/nebula_backup.png');
-  const nebulaFallbackUrl = publicUrl('assets/nebula_background_2.png');
+  const noiseDeepUrl = publicUrl('assets/singularity/noise_deep.png');
+  const nebulaUrl = publicUrl('assets/singularity/nebula_background.png');
+  const nebulaBackupUrl = publicUrl('assets/singularity/nebula_background_backup.png');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -325,12 +324,7 @@ export async function createSingularityScene(params: {
       starsTexture = await texLoader.loadAsync(nebulaBackupUrl);
       applyStarsTextureSettings(starsTexture);
     } catch {
-      try {
-        starsTexture = await texLoader.loadAsync(nebulaFallbackUrl);
-        applyStarsTextureSettings(starsTexture);
-      } catch {
-        starsTexture = makeFallbackStarsTexture();
-      }
+      starsTexture = makeFallbackStarsTexture();
     }
   }
 

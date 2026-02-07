@@ -299,8 +299,8 @@ export async function createSingularityScene(params: {
   // to silently fail (and only show the cube gradient).
   const texLoader = new THREE.TextureLoader();
 
-  const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('.local/singularity/nebula.png');
+  const noiseDeepUrl = publicUrl('assets/singularity/noise_deep.png');
+  const nebulaUrl = publicUrl('assets/singularity/nebula_background.png');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
