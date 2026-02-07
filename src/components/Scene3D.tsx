@@ -73,6 +73,7 @@ export function Scene3D({
   const startAnimation = () => startAnimationRef.current?.();
   const gameYawRef = useRef(0);
   const gamePitchRef = useRef(0);
+  const gamePositionRef = useRef(new Vector3());
 
   const gameInitializedRef = useRef(false);
 
