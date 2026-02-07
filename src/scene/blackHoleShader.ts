@@ -99,8 +99,8 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
     float innerR = Rs * uDiskInner;
     float outerR = Rs * uDiskOuter;
     
-    // Animation
-    float time = uTime * 0.5;
+    // Animation (Tripled speed for WOW factor)
+    float time = uTime * 1.5;
     mat2 rot = mat2(cos(time), sin(time), -sin(time), cos(time));
     
     for(int i=0; i<48; i++) {
@@ -143,11 +143,11 @@ export const BLACK_HOLE_FRAGMENT_SHADER = `
         
         if(alpha > 0.98) break;
         
-        // Gravity Bending (Fake)
+        // Gravity Bending (Fake) - Amplified for Phase 4
         // Pull ray towards origin
         vec3 toCenter = normalize(-currPos);
         float dist = r;
-        float bend = (Rs * 15.0) / (dist*dist + 1.0);
+        float bend = (Rs * 30.0) / (dist*dist + 1.0);
         rayDir = normalize(rayDir + toCenter * bend * STEP_SIZE * 0.2);
         
         // Step
