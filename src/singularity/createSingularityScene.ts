@@ -70,10 +70,10 @@ function makeFallbackStarsTexture(width = 1024, height = 512): THREE.CanvasTextu
   }
   ctx.globalAlpha = 1;
 
-  // Soft nebula gradient layer
+  // Soft terminal nebula gradient layer
   const g = ctx.createRadialGradient(width * 0.35, height * 0.55, 0, width * 0.35, height * 0.55, width * 0.65);
-  g.addColorStop(0, 'rgba(90, 110, 255, 0.18)');
-  g.addColorStop(0.4, 'rgba(140, 70, 220, 0.10)');
+  g.addColorStop(0, 'rgba(0, 255, 65, 0.10)');
+  g.addColorStop(0.4, 'rgba(0, 100, 30, 0.05)');
   g.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, width, height);
@@ -300,7 +300,7 @@ export async function createSingularityScene(params: {
   const texLoader = new THREE.TextureLoader();
 
   const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('.local/singularity/nebula.png');
+  const nebulaUrl = publicUrl('assets/nebula_background_2.png');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -318,6 +318,8 @@ export async function createSingularityScene(params: {
 
   try {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
+    starsTexture.mapping = THREE.EquirectangularReflectionMapping;
+    starsTexture.colorSpace = THREE.SRGBColorSpace;
     starsTexture.mapping = THREE.EquirectangularReflectionMapping;
     starsTexture.colorSpace = THREE.SRGBColorSpace;
     starsTexture.needsUpdate = true;
@@ -342,66 +344,40 @@ export async function createSingularityScene(params: {
   scene.add(mesh);
 
   // ------------------------------------------------------------------
-  // DUST OBJECTS (small orbiting particles around the singularity)
+  // STARFIELD (Optimization: Lightweight gl_Points)
   // ------------------------------------------------------------------
-  const dustGroup = new THREEGPU.Group();
-  const dustGeometry = new THREEGPU.SphereGeometry(0.035, 8, 8);
+  const starsCount = 2000;
+  const starsGeo = new THREEGPU.BufferGeometry();
+  const starsPos = new Float32Array(starsCount * 3);
 
-  type DustParticle = {
-    mesh: THREEGPU.Mesh;
-    radius: number;
-    speed: number;
-    angle: number;
-    height: number;
-    lensStrength: number;
-  };
-  const dustParticles: DustParticle[] = [];
-  const dustCount = 28;
-  for (let i = 0; i < dustCount; i++) {
-    const radius = 1.65 + Math.random() * 1.4;
-    const speed = 0.35 + Math.random() * 0.6;
-    const angle = Math.random() * Math.PI * 2;
-    const height = (Math.random() - 0.5) * 0.22;
-    const particleMaterial = new THREEGPU.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      uniforms: {
-        uLensStrength: { value: 0.24 + Math.random() * 0.22 },
-        uRedshift: { value: 0.55 + Math.random() * 0.35 },
-        uBaseColor: { value: new THREEGPU.Color(0.85, 0.92, 1.0) },
-        uWarmColor: { value: new THREEGPU.Color(1.0, 0.65, 0.35) },
-      },
-      vertexShader: /* glsl */ `
-        uniform float uLensStrength;
-        varying float vRedshift;
-        void main() {
-          vec3 p = position;
-          float r = length(p);
-          float inv = uLensStrength / (r * r + 0.06);
-          vec3 warped = p + normalize(p) * inv;
-          vRedshift = clamp(1.1 - r * 0.35, 0.25, 1.2);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(warped, 1.0);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform float uRedshift;
-        uniform vec3 uBaseColor;
-        uniform vec3 uWarmColor;
-        varying float vRedshift;
-        void main() {
-          float t = clamp(vRedshift * uRedshift, 0.0, 1.0);
-          vec3 col = mix(uBaseColor, uWarmColor, t);
-          gl_FragColor = vec4(col, 0.6);
-        }
-      `,
-    });
-    const particle = new THREEGPU.Mesh(dustGeometry, particleMaterial);
-    particle.scale.setScalar(0.7 + Math.random() * 0.7);
-    dustGroup.add(particle);
-    const lensStrength = (particleMaterial.uniforms.uLensStrength.value as number) ?? 0.3;
-    dustParticles.push({ mesh: particle, radius, speed, angle, height, lensStrength });
+  for (let i = 0; i < starsCount; i++) {
+    const x = (Math.random() - 0.5) * 120;
+    const y = (Math.random() - 0.5) * 120;
+    const z = (Math.random() - 0.5) * 120;
+    // Push them away from center slightly
+    if (x * x + y * y + z * z < 20) {
+      starsPos[i * 3] = x * 3;
+      starsPos[i * 3 + 1] = y * 3;
+      starsPos[i * 3 + 2] = z * 3;
+    } else {
+      starsPos[i * 3] = x;
+      starsPos[i * 3 + 1] = y;
+      starsPos[i * 3 + 2] = z;
+    }
   }
-  scene.add(dustGroup);
+  starsGeo.setAttribute('position', new THREEGPU.Float32BufferAttribute(starsPos, 3));
+
+  const starsMat = new THREEGPU.PointsMaterial({
+    color: 0xffffff,
+    size: 0.15,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+  });
+
+  const starField = new THREEGPU.Points(starsGeo, starsMat);
+  scene.add(starField);
 
   // Optional: subtle wireframe cube (useful when running the scene standalone).
   let cubeGroup: THREE.Object3D | null = null;
@@ -414,9 +390,9 @@ export async function createSingularityScene(params: {
     cubeGeometry = new THREEGPU.BoxGeometry(cubeSize, cubeSize, cubeSize);
     cubeEdges = new THREEGPU.EdgesGeometry(cubeGeometry as unknown as THREEGPU.BufferGeometry, 18);
     cubeMaterial = new THREEGPU.LineBasicMaterial({
-      color: new THREEGPU.Color(0.55, 0.74, 1.0),
+      color: new THREEGPU.Color(0.0, 1.0, 0.25),
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.8,
     });
     const cubeWire = new THREEGPU.LineSegments(cubeEdges as unknown as THREEGPU.BufferGeometry, cubeMaterial);
     (cubeGroup as THREEGPU.Group).add(cubeWire);
@@ -561,18 +537,10 @@ export async function createSingularityScene(params: {
       applyRigToCamera();
     }
 
-    // Update dust orbits with simple lens-like warp near the core
-    for (const dust of dustParticles) {
-      dust.angle += dt * dust.speed;
-      const x = Math.cos(dust.angle) * dust.radius;
-      const z = Math.sin(dust.angle) * dust.radius;
-      const baseY = dust.height;
-      const r = Math.sqrt(x * x + z * z + baseY * baseY);
-      const inv = dust.lensStrength / (r * r + 0.1);
-      const warpX = x + (x / r) * inv;
-      const warpY = baseY + (baseY / r) * inv;
-      const warpZ = z + (z / r) * inv;
-      dust.mesh.position.set(warpX, warpY, warpZ);
+    // Slowly rotate starfield
+    if (starField) {
+      starField.rotation.y += dt * 0.02;
+      starField.rotation.x += dt * 0.005;
     }
 
     if (controlsEnabled) controls.update();

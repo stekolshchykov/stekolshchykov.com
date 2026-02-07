@@ -56,7 +56,7 @@
             "vaul": "^1.1.2"
       },
       "devDependencies": {
-            "@playwright/test": "^1.53.2",
+            "@playwright/test": "^1.58.2",
             "@testing-library/dom": "^10.4.1",
             "@testing-library/jest-dom": "^6.9.1",
             "@testing-library/react": "^16.3.2",
@@ -77,16 +77,16 @@
             "vite": "6.3.5",
             "vitest": "^4.0.18"
       },
-  "scripts": {
-    "dev": "vite",
-    "dev:serve": "bash scripts/dev-serve.sh",
-    "dev:check": "bash scripts/check-dev.sh",
-    "dev:restart": "npm run dev:check || npm run dev:serve",
-    "singularity:assets": "bash scripts/fetch-singularity-assets.sh",
-    "singularity:ref": "bash scripts/fetch-singularity-reference.sh && bash scripts/extract-singularity-reference-frames.sh",
-    "singularity:capture": "node scripts/capture-singularity-frames.mjs",
-    "singularity:compare": "node scripts/compare-frames.mjs",
-    "build": "vite build",
+      "scripts": {
+            "dev": "vite",
+            "dev:serve": "bash scripts/dev-serve.sh",
+            "dev:check": "bash scripts/check-dev.sh",
+            "dev:restart": "npm run dev:check || npm run dev:serve",
+            "singularity:assets": "bash scripts/fetch-singularity-assets.sh",
+            "singularity:ref": "bash scripts/fetch-singularity-reference.sh && bash scripts/extract-singularity-reference-frames.sh",
+            "singularity:capture": "node scripts/capture-singularity-frames.mjs",
+            "singularity:compare": "node scripts/compare-frames.mjs",
+            "build": "vite build",
             "build:pages": "VITE_BASE_PATH=./ vite build",
             "preview": "vite preview",
             "test": "vitest run",

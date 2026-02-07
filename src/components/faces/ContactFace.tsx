@@ -42,7 +42,7 @@ export function ContactFace({ locale }: ContactFaceProps) {
   return (
     <UIPage>
       <UIPill>{ui.contacts}</UIPill>
-      <UITitle>{source.contacts_title}</UITitle>
+      <UITitle className="terminal-typewriter">{source.contacts_title}</UITitle>
 
       <div className="contacts-grid">
         {contacts.map((item) => {

@@ -12,6 +12,7 @@ import { usePostProcessing } from './scene/hooks/usePostProcessing';
 import { FaceActor } from './scene/CubeStructure';
 import { Vector3 } from 'three';
 import { useCubeSystem } from './scene/hooks/useCubeSystem';
+import { useSingularityPhysics } from './scene/hooks/useSingularityPhysics';
 
 // Toggle for Cube Visibility
 const SHOW_CUBE = true;
@@ -106,6 +107,12 @@ export function Scene3D({
     lowPowerMode,
     initialized,
     enabled: !withSingularityBackground,
+  });
+
+  const { updateSingularityPhysics } = useSingularityPhysics({
+    sceneRef: webglSceneRef,
+    lowPowerMode,
+    initialized,
   });
 
   const { composerRef } = usePostProcessing({
@@ -363,6 +370,17 @@ export function Scene3D({
         if (gameMove.lengthSq() > 0.0001) {
           gameMove.normalize();
         }
+
+        // --- BLACK HOLE GRAVITY PULL ---
+        const BLACK_HOLE_POSITION = new Vector3(-650, -70, -720);
+        const toBH = new Vector3().subVectors(BLACK_HOLE_POSITION, gamePositionRef.current);
+        const distSq = toBH.lengthSq();
+        if (distSq > 1000) {
+          const pullForce = Math.min(2200, 2500000 / (distSq + 2000));
+          const pullVec = toBH.normalize().multiplyScalar(pullForce * deltaSeconds);
+          gamePositionRef.current.add(pullVec);
+        }
+
         gamePositionRef.current.addScaledVector(gameMove, moveSpeed * deltaSeconds);
         gameCameraOverride = gamePositionRef.current;
         gameLookAtOverride = gameLookTarget.copy(gamePositionRef.current).addScaledVector(gameForward, 200);
@@ -445,6 +463,9 @@ export function Scene3D({
           if (!withSingularityBackground) {
             updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
           }
+
+          // Update Singularity Particles
+          updateSingularityPhysics(deltaSeconds, currentTime * 0.001);
         }
       }
 

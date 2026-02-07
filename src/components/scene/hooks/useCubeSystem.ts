@@ -37,13 +37,44 @@ export function useCubeSystem({
         faceActors: FaceActor[];
     } | null>(null);
 
+    // Helper to apply visibility
+    const updateVisibility = (
+        refs: typeof cubeRefs.current,
+        gameMode: boolean,
+        globalShow: boolean
+    ) => {
+        if (!refs) return;
+
+        const shouldShow = !gameMode && globalShow;
+        refs.cubeGroup.visible = shouldShow;
+        refs.wireframe.visible = shouldShow;
+
+        refs.faceActors.forEach((actor) => {
+            const element = actor.object.element;
+            if (element) {
+                element.style.pointerEvents = shouldShow ? 'auto' : 'none';
+                if (!shouldShow) {
+                    element.style.opacity = '0';
+                    element.style.display = 'none';
+                } else {
+                    element.style.display = 'block';
+                    // We let the animation loop handle opacity fading if needed, 
+                    // or restore it here if it was zeroed out.
+                    // Ideally the loop sets opacity based on facing, but 'block' is needed to render.
+                }
+            }
+        });
+
+        logEvent('scene.cube.visibility', { visible: shouldShow, gameMode });
+    };
+
     // 1. Creation & Lifecycle
     useEffect(() => {
         if (!initialized || !scene || !webglScene) return;
 
         const { cubeGroup, wireframe, faceActors, dispose } = createCubeStructure({
-            ...createConfig,
             locale,
+            ...createConfig
         });
 
         if (showCube) {
@@ -54,7 +85,7 @@ export function useCubeSystem({
         cubeRefs.current = { cubeGroup, wireframe, faceActors };
         logEvent('scene.cube.created', { locale });
 
-        // Initial Visibility State
+        // Apply initial state
         updateVisibility(cubeRefs.current, isGameMode, showCube);
 
         return () => {
@@ -70,6 +101,7 @@ export function useCubeSystem({
         scene,
         webglScene,
         locale,
+        // Deconstruct config to trigger re-run on value changes
         createConfig.faceSize,
         createConfig.facePadding,
         createConfig.faceAlpha,
@@ -77,46 +109,13 @@ export function useCubeSystem({
         createConfig.cubeSize,
         createConfig.isPhone,
         createConfig.lowPowerMode,
-        showCube, // If showCube config changes, we recreate/re-add
+        showCube,
     ]);
 
     // 2. Visibility Management (Immediate Effect)
     useEffect(() => {
         updateVisibility(cubeRefs.current, isGameMode, showCube);
     }, [isGameMode, showCube]);
-
-    const updateVisibility = (
-        refs: typeof cubeRefs.current,
-        gameMode: boolean,
-        globalShow: boolean
-    ) => {
-        if (!refs) return;
-
-        const shouldShow = !gameMode && globalShow;
-        refs.cubeGroup.visible = shouldShow;
-        refs.wireframe.visible = shouldShow;
-
-        // Robustness: Hide CSS elements processing if hidden
-        // This prevents "ghost clicks" on invisible CSS3D objects
-        refs.faceActors.forEach((actor) => {
-            // If hidden, we disable pointer events to ensure clicks pass through
-            // We also set opacity to 0 immediately to prevent flickers
-            const element = actor.object.element;
-            if (element) {
-                element.style.pointerEvents = shouldShow ? 'auto' : 'none';
-                // We don't force opacity here strictly if we rely on the animation loop for fade effects,
-                // but for "Game Mode" -> we want it gone.
-                if (!shouldShow) {
-                    element.style.opacity = '0';
-                    element.style.display = 'none'; // Force remove from flow/render
-                } else {
-                    element.style.display = 'block';
-                }
-            }
-        });
-
-        logEvent('scene.cube.visibility', { visible: shouldShow, gameMode });
-    };
 
     return cubeRefs;
 }

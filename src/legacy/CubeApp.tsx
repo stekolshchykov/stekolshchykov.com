@@ -67,7 +67,6 @@ export default function CubeApp() {
   const [isLoaderLeaving, setIsLoaderLeaving] = useState(false);
   const [isGameMode, setIsGameMode] = useState(false);
   const [joystickInput, setJoystickInput] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [lookJoystickInput, setLookJoystickInput] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const pulseTimerRef = useRef<number | null>(null);
   const pressedTimerRef = useRef<number | null>(null);
   const bootStartRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -122,6 +121,11 @@ export default function CubeApp() {
 
   useEffect(() => {
     logRuntime('debug', 'app-state', 'Layout mode changed', { isMobile });
+    if (isMobile) {
+      document.body.classList.add('mobile-active');
+    } else {
+      document.body.classList.remove('mobile-active');
+    }
   }, [isMobile]);
 
   useEffect(() => {
@@ -244,7 +248,6 @@ export default function CubeApp() {
         event.preventDefault();
         setIsGameMode(false);
         setJoystickInput({ x: 0, y: 0 });
-        setLookJoystickInput({ x: 0, y: 0 });
         return;
       }
       if (isGameMode) return;
@@ -282,7 +285,6 @@ export default function CubeApp() {
               onReady={handleSceneReady}
               isGameMode={isGameMode}
               joystickInput={joystickInput}
-              lookJoystickInput={lookJoystickInput}
               withSingularityBackground
             />
           </Suspense>
@@ -300,7 +302,6 @@ export default function CubeApp() {
                   if (!isGameMode) playButtonSound();
                   setIsGameMode((v) => !v);
                   setJoystickInput({ x: 0, y: 0 });
-                  setLookJoystickInput({ x: 0, y: 0 });
                 }}
                 aria-label={isGameMode ? 'Exit Game Mode' : 'Enter Game Mode'}
                 type="button"
@@ -353,40 +354,6 @@ export default function CubeApp() {
                       />
                     </div>
                     <span className="joystick-label">MOVE</span>
-                  </div>
-                  <div className="joystick-container">
-                    <div
-                      className="joystick-pad joystick-pad--look"
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        const target = e.currentTarget;
-                        target.setPointerCapture(e.pointerId);
-                        const rect = target.getBoundingClientRect();
-                        const updateJoystick = (ev: PointerEvent) => {
-                          const x = ((ev.clientX - rect.left) / rect.width - 0.5) * 2;
-                          const y = ((ev.clientY - rect.top) / rect.height - 0.5) * 2;
-                          setLookJoystickInput({ x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) });
-                        };
-                        updateJoystick(e.nativeEvent as PointerEvent);
-                        const handleMove = (ev: PointerEvent) => updateJoystick(ev);
-                        const handleUp = () => {
-                          setLookJoystickInput({ x: 0, y: 0 });
-                          window.removeEventListener('pointermove', handleMove);
-                          window.removeEventListener('pointerup', handleUp);
-                        };
-                        window.addEventListener('pointermove', handleMove);
-                        window.addEventListener('pointerup', handleUp);
-                      }}
-                      aria-label="Look joystick"
-                    >
-                      <div
-                        className="joystick-knob joystick-knob--look"
-                        style={{
-                          transform: `translate(${lookJoystickInput.x * 40}px, ${lookJoystickInput.y * 40}px)`,
-                        }}
-                      />
-                    </div>
-                    <span className="joystick-label joystick-label--look">LOOK</span>
                   </div>
                 </div>
               ) : (

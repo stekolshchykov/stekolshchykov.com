@@ -22,8 +22,10 @@ export function AboutFace({ locale }: AboutFaceProps) {
         <p className="welcome-identity__role">{ui.personRole}</p>
         <h3 className="welcome-identity__name">{ui.personName}</h3>
       </UIBlock>
-      <UITitle>{source.hi_title}</UITitle>
-      <UILead>{source.hi_post_title}</UILead>
+      <UIBlock>
+        <UITitle className="terminal-typewriter">{source.hi_title}</UITitle>
+        <UILead>{source.hi_post_title}</UILead>
+      </UIBlock>
 
       <div className="welcome-grid">
         <UIBlock>

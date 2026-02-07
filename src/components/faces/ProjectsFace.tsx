@@ -16,7 +16,7 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
   return (
     <UIPage>
       <UIPill>{ui.about}</UIPill>
-      <UITitle>{source.about_me_title}</UITitle>
+      <UITitle className="terminal-typewriter">{source.about_me_title}</UITitle>
       <UILead>{source.about_me_post_title}</UILead>
 
       <div className="about-layout">
@@ -27,13 +27,29 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
           loading="lazy"
         />
 
-        <div className="about-layout__facts">
-          {facts.map((fact) => (
-            <div key={fact.label} className="fact-item">
-              <span>{fact.label}</span>
-              <strong>{fact.value}</strong>
+        <div className="terminal-directory">
+          <div className="terminal-row header">
+            <span style={{ width: '80px' }}>PERMS</span>
+            <span style={{ width: '60px' }}>SIZE</span>
+            <span style={{ width: '60px' }}>USER</span>
+            <span>NAME</span>
+          </div>
+          {facts.map((fact, index) => (
+            <div key={fact.label} className="terminal-row">
+              <span className="file-perms" style={{ width: '80px', color: '#567' }}>drwxr-xr-x</span>
+              <span className="file-size" style={{ width: '60px', color: '#567' }}>4.0K</span>
+              <span className="file-user" style={{ width: '60px', color: 'var(--terminal-green)' }}>root</span>
+              <span className="file-name">
+                <span style={{ color: 'var(--terminal-green-dim)' }}>{fact.label}:</span> <span style={{ color: '#fff' }}>{fact.value}</span>
+              </span>
             </div>
           ))}
+          <div className="terminal-row">
+            <span className="file-perms" style={{ width: '80px', color: '#567' }}>-rw-r--r--</span>
+            <span className="file-size" style={{ width: '60px', color: '#567' }}>1.2M</span>
+            <span className="file-user" style={{ width: '60px', color: 'var(--terminal-green)' }}>root</span>
+            <span className="file-name" style={{ color: '#fff' }}>photo.jpg</span>
+          </div>
         </div>
       </div>
 

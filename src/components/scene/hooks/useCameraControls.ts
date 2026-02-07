@@ -27,7 +27,7 @@ export function useCameraControls({
     const transitionRef = useRef({
         active: false,
         elapsed: 0,
-        duration: 3.6,
+        duration: 1.8,
         from: { x: 0, y: 0 },
         to: { x: 0, y: 0 },
     });
@@ -114,7 +114,7 @@ export function useCameraControls({
 
             if (targetChanged) {
                 const travel = Math.hypot(deltaTargetX, deltaTargetY);
-                const duration = Math.min(5, Math.max(3, 2.8 + travel * 1.0));
+                const duration = Math.min(2.5, Math.max(1.5, 1.4 + travel * 0.5));
                 transitionRef.current = {
                     active: true,
                     elapsed: 0,

@@ -15,13 +15,16 @@ export function ExperienceFace({ locale }: ExperienceFaceProps) {
   return (
     <UIPage>
       <UIPill>{ui.cooperation}</UIPill>
-      <UITitle>{source.cooperation_title}</UITitle>
+      <UITitle className="terminal-typewriter">{source.cooperation_title}</UITitle>
       <UILead>{source.cooperation_post_title}</UILead>
 
       <div className="cooperation-list">
-        {blocks.map((block) => (
-          <section key={`${block.title}-${block.bodyHtml.slice(0, 20)}`} className="cooperation-item">
-            {block.title ? <h3>{block.title}</h3> : null}
+        {blocks.map((block, index) => (
+          <section key={`${block.title}-${index}`} className="cooperation-item">
+            <div className="terminal-row" style={{ marginBottom: '8px', borderBottom: '1px dashed rgba(0,255,65,0.2)' }}>
+              <span style={{ color: 'var(--terminal-green-dim)' }}>[LOG_ENTRY_{1000 + index}]</span>
+              <span style={{ color: 'var(--terminal-green)' }}>{block.title || 'SYSTEM_MSG'}</span>
+            </div>
             <div dangerouslySetInnerHTML={{ __html: block.bodyHtml }} />
           </section>
         ))}

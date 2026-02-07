@@ -1,6 +1,7 @@
 import type { Locale } from '../../content/stekolschikovContent';
 import { githubProfileUrl, githubUsername, uiTexts, workItems } from '../../content/stekolschikovContent';
 import { UILink, UIPage, UIPill, UITitle } from '../../ui-kit';
+import { GithubHeatmap } from '../ui/GithubHeatmap';
 
 interface EducationFaceProps {
   locale: Locale;
@@ -12,12 +13,14 @@ export function EducationFace({ locale }: EducationFaceProps) {
   return (
     <UIPage>
       <UIPill>{ui.work}</UIPill>
-      <UITitle>{ui.workTitle}</UITitle>
+      <UITitle className="terminal-typewriter">{ui.workTitle}</UITitle>
 
       <div className="github-feed">
         <UILink className="github-profile-link" href={githubProfileUrl} target="_blank" rel="noreferrer noopener">
           @{githubUsername}
         </UILink>
+
+        <GithubHeatmap />
 
         <div className="work-grid">
           {workItems.map((item, index) => (

@@ -52,9 +52,9 @@ export function createCubeStructure(config: CubeStructureConfig) {
     const cubeGeometry = new BoxGeometry(cubeSize, cubeSize, cubeSize);
     const edges = new EdgesGeometry(cubeGeometry);
     const lineMaterial = new LineBasicMaterial({
-        color: 0x5da8ff,
+        color: 0x00ff41,
         transparent: true,
-        opacity: 0.24,
+        opacity: 0.4,
     });
     const wireframe = new LineSegments(edges, lineMaterial);
     // Note: wireframe is returned separately so it can be added to WebGL scene if needed,
@@ -78,7 +78,8 @@ export function createCubeStructure(config: CubeStructureConfig) {
         element.style.padding = `${facePadding}px`;
         // Removed inline styles to allow CSS classes in app.css to control the Glassmorphism look
         // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
-        element.style.borderRadius = isPhone ? '16px' : '24px';
+        // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
+        element.style.borderRadius = '0px';
         element.style.overflow = 'hidden';
         element.style.contain = 'layout style paint';
         element.style.willChange = 'transform';
@@ -86,6 +87,11 @@ export function createCubeStructure(config: CubeStructureConfig) {
         const scrollHost = document.createElement('div');
         scrollHost.className = 'cube-face-scroll';
         element.appendChild(scrollHost);
+
+        // Capture wheel events to allow internal terminal scrolling
+        element.addEventListener('wheel', (e) => {
+            e.stopPropagation();
+        }, { passive: false });
 
         const root = createRoot(scrollHost);
         root.render(
