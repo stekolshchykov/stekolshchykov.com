@@ -300,7 +300,7 @@ export async function createSingularityScene(params: {
   const texLoader = new THREE.TextureLoader();
 
   const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('assets/nebula_background_2.png');
+  const nebulaUrl = publicUrl('assets/nebula_background.jpg');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
