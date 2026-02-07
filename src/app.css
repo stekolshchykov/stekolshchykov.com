@@ -209,6 +209,19 @@
   position: absolute;
   inset: 0;
   transform-origin: 50% 50%;
+  pointer-events: none;
+}
+
+.app-loader__orbit::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--orbit-radius) * 2);
+  height: calc(var(--orbit-radius) * 2);
+  border-radius: 50%;
+  border: 1px dashed rgba(124, 187, 255, 0.22);
+  transform: translate(-50%, -50%);
 }
 
 .app-loader__orbit--a {

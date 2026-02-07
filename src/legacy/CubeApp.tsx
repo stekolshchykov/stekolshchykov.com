@@ -18,14 +18,14 @@ const BOOT_LOADER_FADE_MS = 200;
 const BOOT_LOADER_MAX_MS = 2200;
 const LOCALES: Locale[] = ['ru', 'en', 'uk'];
 const LOADER_LABELS: Record<Locale, string> = {
-  ru: 'Запуск 3D-сцены...',
-  en: 'Launching 3D scene...',
-  uk: 'Запуск 3D-сцени...',
+  ru: 'Моё портфолио загружается...',
+  en: 'My portfolio is loading...',
+  uk: 'Моє портфоліо завантажується...',
 };
 const LOADER_SUBTITLES: Record<Locale, string> = {
-  ru: 'Личное портфолио',
-  en: 'Personal portfolio',
-  uk: 'Особисте портфоліо',
+  ru: '3D Cube Portfolio',
+  en: '3D Cube Portfolio',
+  uk: '3D Cube Portfolio',
 };
 
 
