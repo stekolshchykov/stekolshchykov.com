@@ -277,13 +277,15 @@ export async function createSingularityScene(params: {
   const uniforms = createDefaultSingularityUniforms();
 
   // ------------------------------------------------------------------
-  // ASSETS (LOCAL-ONLY; gitignored)
+  // ASSETS (local first + public fallback)
   // ------------------------------------------------------------------
 
   const texLoader = new THREE.TextureLoader();
 
   const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
   const nebulaUrl = publicUrl('.local/singularity/nebula.png');
+  const nebulaBackupUrl = publicUrl('.local/singularity/nebula_backup.png');
+  const nebulaFallbackUrl = publicUrl('assets/nebula_background_2.png');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -299,13 +301,37 @@ export async function createSingularityScene(params: {
     noiseDeepTexture = makeFallbackNoiseDeepTexture();
   }
 
+  const applyStarsTextureSettings = (tex: THREE.Texture) => {
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    const caps = (renderer as unknown as {
+      capabilities?: { getMaxAnisotropy?: () => number; maxAnisotropy?: number };
+    }).capabilities;
+    const aniso = typeof caps?.getMaxAnisotropy === 'function' ? caps.getMaxAnisotropy() : caps?.maxAnisotropy;
+    if (typeof aniso === 'number') {
+      tex.anisotropy = aniso;
+    }
+    tex.needsUpdate = true;
+  };
+
   try {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
-    starsTexture.mapping = THREE.EquirectangularReflectionMapping;
-    starsTexture.colorSpace = THREE.SRGBColorSpace;
-    starsTexture.needsUpdate = true;
+    applyStarsTextureSettings(starsTexture);
   } catch {
-    starsTexture = makeFallbackStarsTexture();
+    try {
+      starsTexture = await texLoader.loadAsync(nebulaBackupUrl);
+      applyStarsTextureSettings(starsTexture);
+    } catch {
+      try {
+        starsTexture = await texLoader.loadAsync(nebulaFallbackUrl);
+        applyStarsTextureSettings(starsTexture);
+      } catch {
+        starsTexture = makeFallbackStarsTexture();
+      }
+    }
   }
 
   // Environment map used both as background and as a “through-transparency” env in the raymarch shader.
@@ -476,7 +502,7 @@ export async function createSingularityScene(params: {
       const targetRadius = maxRadius - pullStrength * (maxRadius - minRadius);
 
       // Angular velocity increases as radius decreases (Kepler's law feel)
-      const angularSpeed = 0.03 + (1 - (targetRadius - minRadius) / (maxRadius - minRadius)) * 0.08;
+      const angularSpeed = (0.03 + (1 - (targetRadius - minRadius) / (maxRadius - minRadius)) * 0.08) * 0.7;
       const targetTheta = t * angularSpeed + Math.sin(t * 0.05) * 0.15;
 
       // Slight vertical wobble for cinematic feel

@@ -10,7 +10,7 @@ import { useCinematicCamera } from './scene/hooks/useCinematicCamera';
 import { useAdaptiveQuality } from './scene/hooks/useAdaptiveQuality';
 import { usePostProcessing } from './scene/hooks/usePostProcessing';
 import { FaceActor } from './scene/CubeStructure';
-import { Vector3 } from 'three';
+import { AdditiveBlending, Color, DynamicDrawUsage, InstancedMesh, MeshBasicMaterial, Object3D, SphereGeometry, Vector3 } from 'three';
 import { useCubeSystem } from './scene/hooks/useCubeSystem';
 import { useSingularityPhysics } from './scene/hooks/useSingularityPhysics';
 
@@ -263,6 +263,78 @@ export function Scene3D({
     let hasSmoothedCamera = false;
     let hasPreviousCameraPosition = false;
     let activeFaceIndex = -1;
+
+    type DustParticle = {
+      angle: number;
+      speed: number;
+      baseRadius: number;
+      baseHeight: number;
+      wobble: number;
+      wobbleSpeed: number;
+      bob: number;
+      bobSpeed: number;
+      drift: number;
+      scale: number;
+      phase: number;
+      phase2: number;
+    };
+    const dustParticles: DustParticle[] = [];
+    const dustDummy = new Object3D();
+    const dustCount = lowPowerMode ? 48 : 84;
+    const dustMinRadius = cubeSize * (lowPowerMode ? 0.5 : 0.55);
+    const dustMaxRadius = cubeSize * (lowPowerMode ? 0.9 : 1.15);
+    const dustMaxHeight = cubeSize * (lowPowerMode ? 0.12 : 0.18);
+    let dustMesh: InstancedMesh | null = null;
+    let dustGeometry: SphereGeometry | null = null;
+    let dustMaterial: MeshBasicMaterial | null = null;
+
+    if (webglSceneRef.current) {
+      dustGeometry = new SphereGeometry(lowPowerMode ? 3.0 : 4.2, 8, 8);
+      dustMaterial = new MeshBasicMaterial({
+        color: 0x9bffbf,
+        transparent: true,
+        opacity: lowPowerMode ? 0.42 : 0.6,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        vertexColors: true,
+      });
+      dustMesh = new InstancedMesh(dustGeometry, dustMaterial, dustCount);
+      dustMesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      dustMesh.frustumCulled = false;
+
+      const color = new Color();
+      for (let i = 0; i < dustCount; i += 1) {
+        const baseRadius = dustMinRadius + Math.random() * (dustMaxRadius - dustMinRadius);
+        const baseHeight = (Math.random() - 0.5) * dustMaxHeight * 2;
+        const scale = (lowPowerMode ? 0.65 : 0.8) + Math.random() * (lowPowerMode ? 0.8 : 1.3);
+        const particle: DustParticle = {
+          angle: Math.random() * Math.PI * 2,
+          speed: 0.12 + Math.random() * 0.35,
+          baseRadius,
+          baseHeight,
+          wobble: (lowPowerMode ? 8 : 14) + Math.random() * (lowPowerMode ? 10 : 18),
+          wobbleSpeed: 0.2 + Math.random() * 0.5,
+          bob: (lowPowerMode ? 6 : 12) + Math.random() * (lowPowerMode ? 8 : 14),
+          bobSpeed: 0.15 + Math.random() * 0.45,
+          drift: (Math.random() - 0.5) * 0.6,
+          scale,
+          phase: Math.random() * Math.PI * 2,
+          phase2: Math.random() * Math.PI * 2,
+        };
+        dustParticles.push(particle);
+
+        color.setHSL(0.36 + Math.random() * 0.08, 0.7, 0.7 + Math.random() * 0.15);
+        dustMesh.setColorAt(i, color);
+
+        dustDummy.position.set(0, 0, 0);
+        dustDummy.scale.setScalar(scale);
+        dustDummy.updateMatrix();
+        dustMesh.setMatrixAt(i, dustDummy.matrix);
+      }
+      if (dustMesh.instanceColor) dustMesh.instanceColor.needsUpdate = true;
+
+      webglSceneRef.current.add(dustMesh);
+    }
 
     const animate = (currentTime: number) => {
       animationId = 0;
@@ -558,6 +630,27 @@ export function Scene3D({
         wireframe.scale.set(wireScale, wireScale, wireScale);
       }
 
+      // 6b. Update cube dust particles (bounded orbit around cube)
+      if (dustMesh && dustParticles.length > 0) {
+        const timeSec = currentTime * 0.001;
+        for (let i = 0; i < dustParticles.length; i += 1) {
+          const dust = dustParticles[i];
+          dust.angle += deltaSeconds * dust.speed;
+          const wobble = Math.sin(timeSec * dust.wobbleSpeed + dust.phase) * dust.wobble;
+          const bob = Math.cos(timeSec * dust.bobSpeed + dust.phase2) * dust.bob;
+          const radius = Math.min(dustMaxRadius, Math.max(dustMinRadius, dust.baseRadius + wobble));
+          const height = dust.baseHeight + bob;
+          const driftAngle = dust.drift * timeSec;
+          const x = Math.cos(dust.angle + driftAngle) * radius;
+          const z = Math.sin(dust.angle + driftAngle) * radius;
+          dustDummy.position.set(x, floatY + height, z);
+          dustDummy.scale.setScalar(dust.scale);
+          dustDummy.updateMatrix();
+          dustMesh.setMatrixAt(i, dustDummy.matrix);
+        }
+        dustMesh.instanceMatrix.needsUpdate = true;
+      }
+
       // 7. Render
       const scene = sceneRef.current;
       const webglScene = webglSceneRef.current;
@@ -606,6 +699,11 @@ export function Scene3D({
       window.removeEventListener('resize', handleResize);
       animationId = 0;
       startAnimationRef.current = null;
+      if (dustMesh && webglSceneRef.current) {
+        webglSceneRef.current.remove(dustMesh);
+      }
+      dustGeometry?.dispose();
+      dustMaterial?.dispose();
     };
   }, [
     initialized, targetFPS, lowPowerMode, floatAmplitude, cubeSize, activeFaceOpacity, inactiveFaceOpacity, prefersReducedMotion,

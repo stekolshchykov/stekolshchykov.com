@@ -546,7 +546,7 @@ export function useCelestialBodies({ sceneRef, cameraRef, lowPowerMode, initiali
 
     blackHoleVariantRef.current = resolveBlackHoleVariant();
     const bhStyle = getBlackHoleStyle(blackHoleVariantRef.current, lowPowerMode);
-    blackHoleSpinRef.current = bhStyle.spinSpeed;
+    blackHoleSpinRef.current = bhStyle.spinSpeed * 0.7;
     logRuntime('info', 'scene.blackhole', 'Black hole variant selected', { variant: blackHoleVariantRef.current });
 
     const sunUniforms = createSunUniforms();

@@ -81,7 +81,6 @@ export function createCubeStructure(config: CubeStructureConfig) {
         // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
         // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
         element.style.borderRadius = '0px';
-        element.style.border = 'none';
         element.style.outline = 'none';
         element.style.overflow = 'hidden';
         element.style.contain = 'layout style paint';

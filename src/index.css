@@ -26,6 +26,12 @@ body.mobile-active {
   touch-action: auto !important;
 }
 
+body.mobile-active,
+body.mobile-active #root {
+  height: auto;
+  min-height: 100%;
+}
+
 canvas {
   display: block;
 }

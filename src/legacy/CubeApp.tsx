@@ -125,6 +125,12 @@ export default function CubeApp() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('mobile-active', isMobile);
+    return () => document.body.classList.remove('mobile-active');
+  }, [isMobile]);
+
+  useEffect(() => {
     if (isMobile) return;
     const cleanupAudioAutoStart = installAudioAutoStart();
     return () => {
