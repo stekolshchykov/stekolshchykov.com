@@ -73,4 +73,3 @@ test.describe('Game Mode Joystick', () => {
         expect(deltaX + deltaY).toBeGreaterThan(0.001);
     });
 });
-```

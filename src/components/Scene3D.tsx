@@ -293,7 +293,7 @@ useEffect(() => {
     const deltaSeconds = deltaTime / 1000;
     reportFrame(deltaSeconds);
 
-    const camera = cameraRef.current;
+    const camera = cameraRef.current; // Primary declaration at the top of the loop
 
     // 1. Update Physics / Camera Controls
     if (!isGameMode) {
@@ -373,7 +373,7 @@ useEffect(() => {
     let flightSwirl = 0;
     let burst = 0;
 
-    // const camera = cameraRef.current; // Removed duplicate
+    // Duplicate camera declaration removed here to fix scope error
 
     if (camera) {
       if (isGameMode && gameCameraOverride && gameLookAtOverride) {
