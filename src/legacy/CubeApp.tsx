@@ -9,7 +9,6 @@ import { UIKeyButton, UILangButton } from '../ui-kit';
 import { logEvent, logRuntime } from '../observability/logger';
 import { installAudioAutoStart, playButtonSound, playRotationSound } from '../audio/soundscape';
 import { SingularityBackground } from '../singularity/SingularityBackground';
-import { JoystickDebug } from '../components/debug/JoystickDebug';
 
 const Scene3D = lazy(() => import('../components/Scene3D').then((m) => ({ default: m.Scene3D })));
 
@@ -287,7 +286,6 @@ export default function CubeApp() {
               withSingularityBackground
             />
           </Suspense>
-          <JoystickDebug left={joystickInput} right={lookJoystickInput} isGameMode={isGameMode} />
 
           <header className="cube-header">
             <div className="lang-switcher" aria-label={t.language}>
