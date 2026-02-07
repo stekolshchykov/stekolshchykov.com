@@ -124,6 +124,7 @@ export const SUN_FRAGMENT_SHADER = `
         f += w * noise(p);
         p *= 2.02; 
         w *= 0.5;
+    }
     return f;
   }
 
