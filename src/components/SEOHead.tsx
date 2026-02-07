@@ -35,7 +35,10 @@ export function SEOHead({ locale, activeFace }: SEOHeadProps) {
     }, [activeFace, ui, source]);
 
     const currentUrl = typeof window !== 'undefined' ? window.location.href : 'https://stekolshchykov.com';
-    const imageUrl = 'https://stekolshchykov.com/me.jpg'; // We can use the public URL or the local one if deployed
+    const imagePath = '/me-2026.jpg';
+    const imageUrl = typeof window !== 'undefined'
+        ? new URL(imagePath, window.location.origin).toString()
+        : `https://stekolshchykov.com${imagePath}`;
 
     return (
         <Helmet htmlAttributes={{ lang: locale }}>

@@ -22,7 +22,6 @@ test.describe('3D Portfolio Deep Validation (30+ Checks)', () => {
         await page.waitForFunction(() => typeof (window as unknown as { __getCameraRotation: any }).__getCameraRotation === 'function');
         const initialCombined = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
         expect(initialCombined).not.toBeNull();
-        const initialRot = initialCombined.rotation;
         const initialPos = initialCombined.position;
 
         // --- Game Mode Transitions (6-10) ---
@@ -36,9 +35,9 @@ test.describe('3D Portfolio Deep Validation (30+ Checks)', () => {
         // 7. Active Class on Button
         await expect(gamepadBtn).toHaveClass(/active/);
 
-        // 8. Look Joystick Visibility
+        // 8. Look Joystick Removed
         const lookJoystick = page.locator('.joystick-pad--look');
-        await expect(lookJoystick).toBeVisible();
+        await expect(lookJoystick).toHaveCount(0);
 
         // 9. Language Buttons Removal
         const langBtns = page.locator('.lang-switcher button').filter({ hasNotText: '✕' }).filter({ hasNotText: '🎮' });
@@ -105,61 +104,14 @@ test.describe('3D Portfolio Deep Validation (30+ Checks)', () => {
         // 17. Collision/Boundary integrity (No crash after movement)
         expect(posDiag.position.y).not.toBeNaN();
 
-        // --- Rotation - RIGHT JOYSTICK (18-24) ---
-        const lookBox = await lookJoystick.boundingBox();
-        const lx = lookBox!.x + lookBox!.width / 2;
-        const ly = lookBox!.y + lookBox!.height / 2;
-
-        // 18. Pitch Rotation (X-axis)
-        await page.mouse.move(lx, ly);
-        await page.mouse.down();
-        await page.mouse.move(lx, ly - 80, { steps: 5 });
-        await page.waitForTimeout(200);
-        await page.mouse.up();
-        const statePitch = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
-        expect(Math.abs(statePitch.rotation.x - initialRot.x)).toBeGreaterThan(0.01);
-
-        // 19. Yaw Rotation (Y-axis)
-        await page.mouse.move(lx, ly);
-        await page.mouse.down();
-        await page.mouse.move(lx + 80, ly, { steps: 5 });
-        await page.waitForTimeout(200);
-        await page.mouse.up();
-        const stateYaw = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
-        expect(Math.abs(stateYaw.rotation.y - initialRot.y)).toBeGreaterThan(0.01);
-
-        // 20. Rotation Clamping (Negative Limit)
-        await page.mouse.move(lx, ly);
-        await page.mouse.down();
-        await page.mouse.move(lx, ly + 200, { steps: 10 }); // Look down
-        await page.mouse.up();
-        const stateClampNeg = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
-        expect(Math.abs(stateClampNeg.rotation.x)).toBeLessThan(2.0);
-
-        // 21. Rotation Clamping (Positive Limit)
-        await page.mouse.move(lx, ly);
-        await page.mouse.down();
-        await page.mouse.move(lx, ly - 200, { steps: 10 }); // Look up
-        await page.mouse.up();
-        const stateClampPos = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
-        expect(Math.abs(stateClampPos.rotation.x)).toBeLessThan(2.0);
-
-        // 22. Rotation Stasis Check (No drift after release)
-        await page.waitForTimeout(100);
-        const stateStasis = await page.evaluate(() => (window as unknown as { __getCameraRotation: () => any }).__getCameraRotation());
-        expect(stateStasis.rotation.y).toBeCloseTo(stateClampPos.rotation.y, 5);
-
-        // 23. Combined Rotation (Pitch + Yaw)
-        // 24. Euler Order Check (No gimbal lock jump in simple movements)
-
-        // --- UI Interactions & Global State (25-30) ---
+        // --- UI Interactions & Global State (18-30) ---
         // 25. Exit Game Mode
         await page.evaluate(() => {
             const btn = document.querySelector('.game-mode-btn') as HTMLElement;
             if (btn) btn.click();
         });
         await page.waitForTimeout(500);
-        await expect(lookJoystick).not.toBeVisible();
+        await expect(lookJoystick).toHaveCount(0);
 
         // 26. Language Restoration
         const langBtnsAfter = await page.locator('.lang-switcher button').count();

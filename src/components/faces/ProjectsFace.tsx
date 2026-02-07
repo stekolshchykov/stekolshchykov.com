@@ -23,7 +23,7 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
         <UIBlock className="about-photo-block">
           <img
             className="about-layout__photo"
-            src="/me.jpg"
+            src="/me-2026.jpg"
             alt={ui.aboutPhotoAlt}
             loading="lazy"
           />
@@ -50,7 +50,7 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
             <span className="col-perms">-rw-r--r--</span>
             <span className="col-size">1.2M</span>
             <span className="col-user">root</span>
-            <span className="col-name">photo.jpg</span>
+            <span className="col-name">me-2026.jpg</span>
           </div>
         </UIBlock>
       </div>

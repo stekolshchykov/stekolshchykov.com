@@ -206,7 +206,7 @@ export function MobileSite({ locale, locales, activeFace, onFaceChange, onLocale
 
             <img
               className="mobile-about-photo"
-              src="/me.jpg"
+              src="/me-2026.jpg"
               alt={ui.aboutPhotoAlt}
               loading="lazy"
             />
