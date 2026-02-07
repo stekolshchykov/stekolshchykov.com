@@ -356,7 +356,7 @@ export function Scene3D({
       let flightSwirl = 0;
       let burst = 0;
 
-      const camera = cameraRef.current; // This line is moved to the top of the animate function
+      // const camera = cameraRef.current; // Removed duplicate
 
       if (camera) {
         if (isGameMode && gameCameraOverride && gameLookAtOverride) {
