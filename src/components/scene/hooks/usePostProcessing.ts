@@ -43,9 +43,9 @@ export function usePostProcessing({
         // 2. Bloom Pass - Very subtle glow
         const bloomPass = new UnrealBloomPass(
             new Vector2(width, height),
-            0.09, // strength (50% of 0.18)
-            0.08, // radius (50% of 0.15)
-            0.98  // threshold (higher = less bloom)
+            0.09, // strength
+            0.08, // radius
+            0.99  // threshold (higher = less bloom on text)
         );
         composer.addPass(bloomPass);
 

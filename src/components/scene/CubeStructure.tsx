@@ -83,9 +83,10 @@ export function createCubeStructure(config: CubeStructureConfig) {
         element.style.overflow = 'hidden';
         element.style.contain = 'layout style paint';
         element.style.willChange = 'transform';
-        if (!lowPowerMode) {
-            element.style.backdropFilter = 'blur(2px)';
-        }
+        // Backdrop filter removed to prevent text blurring bug
+        // if (!lowPowerMode) {
+        //     element.style.backdropFilter = 'blur(2px)';
+        // }
 
         const scrollHost = document.createElement('div');
         scrollHost.className = 'cube-face-scroll';
