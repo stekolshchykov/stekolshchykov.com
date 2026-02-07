@@ -35,6 +35,7 @@ export function useCubeSystem({
         cubeGroup: Group;
         wireframe: LineSegments;
         faceActors: FaceActor[];
+        updateLocale: (locale: Locale) => void;
     } | null>(null);
 
     // Helper to apply visibility
@@ -47,7 +48,7 @@ export function useCubeSystem({
 
         const shouldShow = !gameMode && globalShow;
         refs.cubeGroup.visible = shouldShow;
-        refs.wireframe.visible = shouldShow;
+        refs.wireframe.visible = false; // Always hide wireframe
 
         refs.faceActors.forEach((actor) => {
             const element = actor.object.element;
@@ -72,7 +73,7 @@ export function useCubeSystem({
     useEffect(() => {
         if (!initialized || !scene || !webglScene) return;
 
-        const { cubeGroup, wireframe, faceActors, dispose } = createCubeStructure({
+        const { cubeGroup, wireframe, faceActors, dispose, updateLocale } = createCubeStructure({
             locale,
             ...createConfig
         });
@@ -82,7 +83,7 @@ export function useCubeSystem({
             scene.add(cubeGroup);
         }
 
-        cubeRefs.current = { cubeGroup, wireframe, faceActors };
+        cubeRefs.current = { cubeGroup, wireframe, faceActors, updateLocale };
         logEvent('scene.cube.created', { locale });
 
         // Apply initial state
@@ -96,11 +97,13 @@ export function useCubeSystem({
             dispose();
             cubeRefs.current = null;
         };
+    // Note: locale is intentionally NOT in dependencies to prevent cube recreation on language change.
+    // Face components receive locale as prop and React handles re-renders internally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         initialized,
         scene,
         webglScene,
-        locale,
         // Deconstruct config to trigger re-run on value changes
         createConfig.faceSize,
         createConfig.facePadding,
@@ -116,6 +119,13 @@ export function useCubeSystem({
     useEffect(() => {
         updateVisibility(cubeRefs.current, isGameMode, showCube);
     }, [isGameMode, showCube]);
+
+    // 3. Locale update (without cube recreation)
+    useEffect(() => {
+        if (cubeRefs.current?.updateLocale) {
+            cubeRefs.current.updateLocale(locale);
+        }
+    }, [locale]);
 
     return cubeRefs;
 }

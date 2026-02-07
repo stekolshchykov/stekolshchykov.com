@@ -3,7 +3,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import type { Locale } from '../../content/stekolschikovContent';
 import { contactLinks, sourceTexts, uiTexts } from '../../content/stekolschikovContent';
 import { getMaskedContactValue, getRevealText, type ContactKey } from '../../features/contacts';
-import { UIIconButton, UILink, UIPage, UIPill, UITitle } from '../../ui-kit';
+import { UIBlock, UIIconButton, UILink, UIPage, UIPill, UITitle } from '../../ui-kit';
 import { logRuntime } from '../../observability/logger';
 
 interface ContactFaceProps {
@@ -24,7 +24,6 @@ export function ContactFace({ locale }: ContactFaceProps) {
 
   const contacts: Array<{ key: ContactKey; label: string; value: string; href: string }> = [
     { key: 'email', label: ui.contactEmail, value: contactLinks.email, href: `mailto:${contactLinks.email}` },
-    { key: 'skype', label: ui.contactSkype, value: contactLinks.skype, href: `skype:${contactLinks.skype}` },
     { key: 'phone', label: source.contacts_phone, value: contactLinks.phone, href: `tel:${contactLinks.phone}` },
     {
       key: 'telegram',
@@ -48,9 +47,9 @@ export function ContactFace({ locale }: ContactFaceProps) {
         {contacts.map((item) => {
           const isVisible = visibleMap[item.key];
           return (
-            <article key={item.key} className="contact-card">
+            <UIBlock key={item.key} className="contact-card">
               <div className="contact-card__head">
-                <span>{item.label}</span>
+                <span className="contact-label">{item.label}</span>
                 <UIIconButton
                   onClick={() => toggleVisibility(item.key)}
                   aria-label={isVisible ? reveal.hide : reveal.show}
@@ -60,13 +59,13 @@ export function ContactFace({ locale }: ContactFaceProps) {
               </div>
 
               {isVisible ? (
-                <UILink href={item.href} target={item.key === 'telegram' ? '_blank' : undefined} rel="noreferrer">
+                <UILink href={item.href} target={item.key === 'telegram' ? '_blank' : undefined} rel="noreferrer" className="contact-value-link">
                   {item.value}
                 </UILink>
               ) : (
                 <p className="contact-hidden">{getMaskedContactValue(item.value)}</p>
               )}
-            </article>
+            </UIBlock>
           );
         })}
       </div>

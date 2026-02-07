@@ -1,6 +1,6 @@
 import type { Locale } from '../../content/stekolschikovContent';
 import { personalSiteUrl, sourceTexts, uiTexts } from '../../content/stekolschikovContent';
-import { UIBlock, UILink, UILead, UIPage, UIPill, UITitle } from '../../ui-kit';
+import { UIBlock, UILead, UILink, UIList, UIListItem, UIPage, UIPill, UITitle } from '../../ui-kit';
 
 interface AboutFaceProps {
   locale: Locale;
@@ -28,22 +28,22 @@ export function AboutFace({ locale }: AboutFaceProps) {
       </UIBlock>
 
       <div className="welcome-grid">
-        <UIBlock>
-          <h3>{source.hi_nav}</h3>
-          <ul className="face-list">
+        <UIBlock className="nav-menu-block">
+          <h3 className="nav-menu-title">{source.hi_nav}</h3>
+          <UIList className="nav-menu-list">
             {pages.map((page, index) => (
-              <li key={page}>
-                <span>{index + 1}.</span> {page}
-              </li>
+              <UIListItem key={page}>
+                <span className="nav-index">{index + 1}.</span> {page}
+              </UIListItem>
             ))}
-          </ul>
+          </UIList>
         </UIBlock>
 
         <aside className="qr-card">
           <div className="qr-orbit">
             <img src={qrSrc} alt="QR to stekolshchykov.com" loading="lazy" />
           </div>
-          <UILink href={personalSiteUrl} target="_blank" rel="noreferrer noopener">
+          <UILink href={personalSiteUrl} target="_blank" rel="noreferrer noopener" className="qr-link">
             stekolshchykov.com
           </UILink>
         </aside>

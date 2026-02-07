@@ -70,7 +70,6 @@ export function MobileSite({ locale, locales, activeFace, onFaceChange, onLocale
 
   const contacts: Array<{ key: ContactKey; label: string; value: string; href: string }> = [
     { key: 'email', label: ui.contactEmail, value: contactLinks.email, href: `mailto:${contactLinks.email}` },
-    { key: 'skype', label: ui.contactSkype, value: contactLinks.skype, href: `skype:${contactLinks.skype}` },
     { key: 'phone', label: source.contacts_phone, value: contactLinks.phone, href: `tel:${contactLinks.phone}` },
     {
       key: 'telegram',

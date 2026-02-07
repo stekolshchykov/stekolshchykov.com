@@ -1,7 +1,14 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type BloomNode from 'three/addons/tsl/display/BloomNode.js';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { add, emissive, equirectUV, mrt, output, pass, texture } from 'three/tsl';
 
 import type { SingularityDiagnostics } from './SingularityView';
+import { createDebugPanel } from './DebugPanel';
+import { GizmoHelper } from './GizmoHelper';
+import { createDefaultSingularityUniforms, createSingularityColorNode } from './blackHoleNode';
 
 export type SingularityCameraMode = 'auto' | 'joystick' | 'static';
 
@@ -70,10 +77,10 @@ function makeFallbackStarsTexture(width = 1024, height = 512): THREE.CanvasTextu
   }
   ctx.globalAlpha = 1;
 
-  // Soft terminal nebula gradient layer
+  // Soft nebula gradient layer
   const g = ctx.createRadialGradient(width * 0.35, height * 0.55, 0, width * 0.35, height * 0.55, width * 0.65);
-  g.addColorStop(0, 'rgba(0, 255, 65, 0.10)');
-  g.addColorStop(0.4, 'rgba(0, 100, 30, 0.05)');
+  g.addColorStop(0, 'rgba(90, 110, 255, 0.18)');
+  g.addColorStop(0.4, 'rgba(140, 70, 220, 0.10)');
   g.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, width, height);
@@ -133,8 +140,8 @@ function createWebGLFallbackMaterial(): THREE.ShaderMaterial {
         float ring = smoothRing(r, 0.38, 0.055);
         // Swirl modulation
         float a = atan(uv.y, uv.x);
-        float swirl = 0.6 + 0.4 * sin(8.0 * a + 14.0 * r - uTime * 1.05);
-        float n = hash21(uv * 40.0 + uTime * 0.075);
+        float swirl = 0.6 + 0.4 * sin(8.0 * a + 14.0 * r - uTime * 0.7);
+        float n = hash21(uv * 40.0 + uTime * 0.05);
         ring *= (0.55 + 0.65 * swirl) * (0.7 + 0.6 * n);
 
         vec3 hot = vec3(1.35, 0.82, 0.35);
@@ -170,35 +177,27 @@ export async function createSingularityScene(params: {
   getCameraMode?: () => SingularityCameraMode;
   getJoystickInput?: () => { x: number; y: number };
   forceWebGL?: boolean;
+  // Optional display flags (for SingularityBackground to pass)
   showDebugPanel?: boolean;
   showGizmo?: boolean;
   showWireCube?: boolean;
   controlsEnabled?: boolean;
 }): Promise<{ dispose: () => void }> {
   const {
-    canvas,
-    debugRootEl,
-    gizmoRootEl,
-    diagnostics,
-    onFirstFrame,
-    getTargetRotation,
-    getCameraMode,
-    getJoystickInput,
-    forceWebGL,
-    showDebugPanel = true,
-    showGizmo = true,
-    showWireCube = true,
-    controlsEnabled = true,
+    canvas, debugRootEl, gizmoRootEl, diagnostics, onFirstFrame,
+    getTargetRotation, getCameraMode, getJoystickInput, forceWebGL,
+    showDebugPanel = true, showGizmo = true, showWireCube = false, controlsEnabled = false,
   } = params;
 
+  const scene = new THREE.Scene();
+  // Background is driven by a TSL backgroundNode to match the reference.
+  scene.background = null;
+
   // WebGL fallback path: avoid `WebGPURenderer.init()` hangs in headless environments.
-  // Important: keep this file safe to import in environments without WebGPU by not touching `three/webgpu`
-  // unless we actually need it.
   if (forceWebGL) {
-    const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    const renderer = new THREE.WebGLRenderer({
+    const renderer = new WebGLRenderer({
       canvas,
       antialias: true,
       alpha: false,
@@ -255,36 +254,23 @@ export async function createSingularityScene(params: {
     };
   }
 
-  // WebGPU path (lazy loaded so unit tests / non-WebGPU environments don't crash at import time).
-  const THREEGPU = await import('three/webgpu');
-  const { bloom } = await import('three/addons/tsl/display/BloomNode.js');
-  const { add, emissive, equirectUV, mrt, output, pass, texture } = await import('three/tsl');
-  const { createDefaultSingularityUniforms, createSingularityColorNode } = await import('./blackHoleNode');
-
-  const scene = new THREEGPU.Scene();
-  // Background is driven by a TSL backgroundNode to match the reference.
-  (scene as unknown as { background: unknown }).background = null;
-
-  const camera = new THREEGPU.PerspectiveCamera(50, 1, 0.1, 2000);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
   camera.position.set(1, 0.5, 3);
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREEGPU.WebGPURenderer({
+  const renderer = new THREE.WebGPURenderer({
     canvas,
     antialias: true,
     alpha: false,
     stencil: false,
     depth: true,
-    // For parity with the reference:
-    useLegacyLights: false,
-    physicallyCorrectLights: true,
     forceWebGL: Boolean(forceWebGL),
   });
 
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREEGPU.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREEGPU.SRGBColorSpace;
-  renderer.toneMapping = THREEGPU.ACESFilmicToneMapping;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
   renderer.setClearColor('#010101', 1);
 
@@ -294,13 +280,10 @@ export async function createSingularityScene(params: {
   // ASSETS (LOCAL-ONLY; gitignored)
   // ------------------------------------------------------------------
 
-  // Use core loaders from `three` even in WebGPU mode. `three/webgpu` is not guaranteed
-  // to re-export loaders, and missing loader constructors would cause the background
-  // to silently fail (and only show the cube gradient).
   const texLoader = new THREE.TextureLoader();
 
   const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('assets/nebula_background.jpg');
+  const nebulaUrl = publicUrl('.local/singularity/nebula.png');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -320,89 +303,39 @@ export async function createSingularityScene(params: {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
     starsTexture.mapping = THREE.EquirectangularReflectionMapping;
     starsTexture.colorSpace = THREE.SRGBColorSpace;
-
-    // High-Res Asset Optimization: Enable Mipmaps and Trilinear Filtering to prevent aliasing
-    starsTexture.generateMipmaps = true;
-    starsTexture.minFilter = THREE.LinearMipmapLinearFilter;
-    starsTexture.magFilter = THREE.LinearFilter;
-    starsTexture.anisotropy = (renderer as any).capabilities?.maxAnisotropy || 16;
-
     starsTexture.needsUpdate = true;
   } catch {
     starsTexture = makeFallbackStarsTexture();
   }
 
   // Environment map used both as background and as a “through-transparency” env in the raymarch shader.
-  (scene as unknown as { backgroundNode?: unknown }).backgroundNode = texture(starsTexture, equirectUV()).mul(
-    uniforms.backgroundIntensity
-  );
+  scene.backgroundNode = texture(starsTexture, equirectUV()).mul(uniforms.backgroundIntensity);
 
-  const geometry = new THREEGPU.SphereGeometry(1, 16, 16);
-  const material = new THREEGPU.MeshStandardNodeMaterial({ side: THREEGPU.DoubleSide });
+  const geometry = new THREE.SphereGeometry(1, 16, 16);
+  const material = new THREE.MeshStandardNodeMaterial({ side: THREE.DoubleSide });
   const colorNode = createSingularityColorNode(uniforms, { noiseDeepTexture, starsTexture });
   material.colorNode = colorNode;
   material.emissiveNode = colorNode;
   material.roughness = 1.0;
   material.metalness = 0.0;
 
-  const mesh = new THREEGPU.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
 
-  // ------------------------------------------------------------------
-  // STARFIELD (Optimization: Lightweight gl_Points)
-  // ------------------------------------------------------------------
-  const starsCount = 2000;
-  const starsGeo = new THREEGPU.BufferGeometry();
-  const starsPos = new Float32Array(starsCount * 3);
-
-  for (let i = 0; i < starsCount; i++) {
-    const x = (Math.random() - 0.5) * 120;
-    const y = (Math.random() - 0.5) * 120;
-    const z = (Math.random() - 0.5) * 120;
-    // Push them away from center slightly
-    if (x * x + y * y + z * z < 20) {
-      starsPos[i * 3] = x * 3;
-      starsPos[i * 3 + 1] = y * 3;
-      starsPos[i * 3 + 2] = z * 3;
-    } else {
-      starsPos[i * 3] = x;
-      starsPos[i * 3 + 1] = y;
-      starsPos[i * 3 + 2] = z;
-    }
-  }
-  starsGeo.setAttribute('position', new THREEGPU.Float32BufferAttribute(starsPos, 3));
-
-  const starsMat = new THREEGPU.PointsMaterial({
-    color: 0xffffff,
-    size: 0.15,
-    sizeAttenuation: true,
+  // Wireframe cube disabled - not needed for portfolio UI
+  const cubeGroup = new THREE.Group();
+  const cubeSize = 2.65;
+  const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+  const cubeEdges = new THREE.EdgesGeometry(cubeGeometry, 18);
+  const cubeMaterial = new THREE.LineBasicMaterial({
+    color: new THREE.Color(0.55, 0.74, 1.0),
     transparent: true,
-    opacity: 0.6,
-    depthWrite: false,
+    opacity: 0,
   });
-
-  const starField = new THREEGPU.Points(starsGeo, starsMat);
-  scene.add(starField);
-
-  // Optional: subtle wireframe cube (useful when running the scene standalone).
-  let cubeGroup: THREE.Object3D | null = null;
-  let cubeGeometry: THREE.BufferGeometry | null = null;
-  let cubeEdges: THREE.BufferGeometry | null = null;
-  let cubeMaterial: THREE.Material | null = null;
-  if (showWireCube) {
-    cubeGroup = new THREEGPU.Group();
-    const cubeSize = 2.65;
-    cubeGeometry = new THREEGPU.BoxGeometry(cubeSize, cubeSize, cubeSize);
-    cubeEdges = new THREEGPU.EdgesGeometry(cubeGeometry as unknown as THREEGPU.BufferGeometry, 18);
-    cubeMaterial = new THREEGPU.LineBasicMaterial({
-      color: new THREEGPU.Color(0.0, 1.0, 0.25),
-      transparent: true,
-      opacity: 0.8,
-    });
-    const cubeWire = new THREEGPU.LineSegments(cubeEdges as unknown as THREEGPU.BufferGeometry, cubeMaterial);
-    (cubeGroup as THREEGPU.Group).add(cubeWire);
-    scene.add(cubeGroup);
-  }
+  const cubeWire = new THREE.LineSegments(cubeEdges, cubeMaterial);
+  cubeWire.visible = showWireCube;
+  cubeGroup.add(cubeWire);
+  scene.add(cubeGroup);
 
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -411,15 +344,7 @@ export async function createSingularityScene(params: {
   controls.maxDistance = 1000;
   controls.target.set(0, 0, 0);
 
-  // ------------------------------------------------------------------
-  // CAMERA RIG (AUTO OR JOYSTICK-DRIVEN)
-  // ------------------------------------------------------------------
-  //
-  // For the cube background we want a smooth "fly-through" around the singularity.
-  // When game mode is enabled, we let a virtual joystick drive the orbit instead.
-  const defaultCameraMode: SingularityCameraMode = controlsEnabled ? 'static' : 'auto';
-
-  // Spherical rig around the origin (target).
+  // Spherical rig for smooth orbital camera animation
   let rigTheta = Math.atan2(camera.position.x, camera.position.z);
   let rigRadius = camera.position.length();
   let rigPhi = Math.atan2(camera.position.y, Math.sqrt(camera.position.x * camera.position.x + camera.position.z * camera.position.z));
@@ -440,22 +365,19 @@ export async function createSingularityScene(params: {
 
   // Gizmo helper (drawn in a dedicated root to avoid polluting document.body).
   gizmoRootEl.innerHTML = '';
-  const gizmo = await (async () => {
-    if (!showGizmo) return null;
-    const { GizmoHelper } = await import('./GizmoHelper');
-    const helper = new GizmoHelper(camera, { size: 100, padding: 8 });
-    gizmoRootEl.appendChild(helper);
-    return helper;
-  })();
+  let gizmo: GizmoHelper | null = null;
+  if (showGizmo) {
+    gizmo = new GizmoHelper(camera, { size: 100, padding: 8 });
+    gizmoRootEl.appendChild(gizmo);
+  }
 
   // ------------------------------------------------------------------
   // INIT + POSTPROCESS
   // ------------------------------------------------------------------
 
-  // Types here are intentionally loose to keep this file import-safe without WebGPU globals.
-  let postProcessing: unknown | null = null;
-  let bloomNode: any = null;
-  let debugPanel: { update: () => void; dispose: () => void } | null = null;
+  let postProcessing: THREE.PostProcessing | null = null;
+  let bloomNode: BloomNode | null = null;
+  let debugPanel: ReturnType<typeof createDebugPanel> | null = null;
 
   const resize = () => {
     const w = Math.max(1, Math.floor(window.innerWidth));
@@ -469,18 +391,20 @@ export async function createSingularityScene(params: {
     camera.updateProjectionMatrix();
 
     // WebGPU postprocessing needs a resize hint.
-    if (postProcessing && typeof postProcessing === 'object' && 'needsUpdate' in (postProcessing as any)) {
-      (postProcessing as any).needsUpdate = true;
+    if (postProcessing && 'needsUpdate' in postProcessing) {
+      (postProcessing as unknown as { needsUpdate: boolean }).needsUpdate = true;
     }
   };
 
   window.addEventListener('resize', resize, { passive: true });
+
+  // Size the renderer/camera before init so targets match.
   resize();
 
   await renderer.init();
 
   // Build post chain once.
-  postProcessing = new THREEGPU.PostProcessing(renderer);
+  postProcessing = new THREE.PostProcessing(renderer);
   const scenePass = pass(scene, camera);
   scenePass.setMRT(mrt({ output, emissive }));
   const scenePassColor = scenePass.getTextureNode('output');
@@ -488,18 +412,15 @@ export async function createSingularityScene(params: {
   bloomNode.strength.value = 0.217;
   bloomNode.radius.value = 0.0;
   bloomNode.threshold.value = 0.0;
-  (postProcessing as any).outputNode = add(scenePassColor, bloomNode);
+  postProcessing.outputNode = add(scenePassColor, bloomNode);
 
   if (showDebugPanel) {
-    const { createDebugPanel } = await import('./DebugPanel');
     debugPanel = createDebugPanel({
       debugRootEl,
       renderer,
       bloom: bloomNode,
       uniforms,
     });
-  } else {
-    debugRootEl.innerHTML = '';
   }
 
   // ------------------------------------------------------------------
@@ -514,52 +435,76 @@ export async function createSingularityScene(params: {
     const dt = clamp((now - lastFrameTime) / 1000, 1 / 240, 0.05);
     lastFrameTime = now;
 
-    const mode = getCameraMode?.() ?? defaultCameraMode;
-    if (mode === 'auto') {
-      const t = now / 1000;
-      const targetTheta = t * 0.11 + Math.sin(t * 0.23) * 0.22;
-      const targetPhi = 0.22 + Math.sin(t * 0.17) * 0.06;
-      const targetRadius = 3.1 + Math.sin(t * 0.11) * 0.55 + Math.sin(t * 0.041) * 0.18;
+    const cameraMode = getCameraMode?.() ?? 'auto';
+    const joystick = getJoystickInput?.() ?? { x: 0, y: 0 };
 
-      const follow = 1 - Math.exp(-dt * 1.25);
+    // Cinematic slow orbit around the black hole with gravitational pull effect
+    const t = now / 1000;
+
+    // Radius limits for all modes
+    const minRadius = 2.2;
+    const maxRadius = 4.5;
+
+    if (cameraMode === 'joystick') {
+      // Joystick mode: user controls theta and radius
+      const joystickSensitivity = 2.0;
+      const radiusSensitivity = 3.0;
+
+      // X axis rotates around the black hole
+      rigTheta += joystick.x * joystickSensitivity * dt;
+
+      // Y axis moves closer/farther from black hole
+      rigRadius -= joystick.y * radiusSensitivity * dt;
+      rigRadius = clamp(rigRadius, minRadius, maxRadius);
+
+      // Slight phi wobble for immersion
+      const targetPhi = 0.18 + Math.sin(t * 0.08) * 0.05;
+      rigPhi = rigPhi + (targetPhi - rigPhi) * 0.02;
+
+      applyRigToCamera();
+    } else if (cameraMode === 'static') {
+      // Static mode: camera doesn't move
+      applyRigToCamera();
+    } else {
+      // Auto mode: cinematic orbit
+      // Slow spiral orbit - gets faster as it gets closer (gravitational acceleration)
+      const pullCycle = 90; // seconds for one pull-release cycle
+
+      // Gravitational pull - slowly approaches then retreats
+      const pullPhase = (t % pullCycle) / pullCycle;
+      const pullStrength = Math.sin(pullPhase * Math.PI * 2) * 0.5 + 0.5; // 0 to 1
+      const targetRadius = maxRadius - pullStrength * (maxRadius - minRadius);
+
+      // Angular velocity increases as radius decreases (Kepler's law feel)
+      const angularSpeed = 0.03 + (1 - (targetRadius - minRadius) / (maxRadius - minRadius)) * 0.08;
+      const targetTheta = t * angularSpeed + Math.sin(t * 0.05) * 0.15;
+
+      // Slight vertical wobble for cinematic feel
+      const targetPhi = 0.18 + Math.sin(t * 0.08) * 0.08;
+
+      // Very smooth following for cinematic movement
+      const follow = 1 - Math.exp(-dt * 0.8);
       rigTheta = lerpAngle(rigTheta, targetTheta, follow);
       rigPhi = rigPhi + (targetPhi - rigPhi) * follow;
-      rigRadius = rigRadius + (targetRadius - rigRadius) * follow;
-
-      applyRigToCamera();
-    } else if (mode === 'joystick') {
-      const input = getJoystickInput?.() ?? { x: 0, y: 0 };
-      const dead = 0.06;
-      const ix = Math.abs(input.x) < dead ? 0 : input.x;
-      const iy = Math.abs(input.y) < dead ? 0 : input.y;
-
-      // x: orbit around; y: in/out (towards the singularity).
-      rigTheta += ix * dt * 1.35;
-      rigRadius = clamp(rigRadius + (-iy) * dt * 3.0, 1.65, 10.0);
-      // Keep a pleasing, stable inclination (prevents motion sickness).
-      rigPhi = clamp(rigPhi, 0.12, 0.46);
+      rigRadius = rigRadius + (targetRadius - rigRadius) * follow * 0.5;
 
       applyRigToCamera();
     }
 
-    // Slowly rotate starfield
-    if (starField) {
-      starField.rotation.y += dt * 0.02;
-      starField.rotation.x += dt * 0.005;
-    }
-
-    if (controlsEnabled) controls.update();
-    gizmo?.update?.();
+    // Update controls/gizmo.
+    controls.update();
+    gizmo?.update();
     debugPanel?.update();
 
     const nextRotation = getTargetRotation?.();
-    if (cubeGroup && nextRotation) {
-      cubeGroup.rotation.x = THREEGPU.MathUtils.lerp(cubeGroup.rotation.x, nextRotation.x, 0.12);
+    if (nextRotation) {
+      cubeGroup.rotation.x = THREE.MathUtils.lerp(cubeGroup.rotation.x, nextRotation.x, 0.12);
       cubeGroup.rotation.y = lerpAngle(cubeGroup.rotation.y, nextRotation.y, 0.12);
     }
 
+    // Render.
     if (postProcessing) {
-      (postProcessing as any).render();
+      postProcessing.render();
     } else {
       renderer.render(scene, camera);
     }
@@ -583,15 +528,14 @@ export async function createSingularityScene(params: {
       controls.dispose();
       geometry.dispose();
       material.dispose();
+      cubeEdges.dispose();
+      cubeGeometry.dispose();
+      cubeMaterial.dispose();
 
-      (cubeEdges as any)?.dispose?.();
-      (cubeGeometry as any)?.dispose?.();
-      (cubeMaterial as any)?.dispose?.();
-
-      (postProcessing as any)?.dispose?.();
+      postProcessing?.dispose?.();
       renderer.dispose();
 
-      if (gizmo && (gizmo as any).parentNode === gizmoRootEl) gizmoRootEl.removeChild(gizmo as any);
+      if (gizmo && gizmo.parentNode === gizmoRootEl) gizmoRootEl.removeChild(gizmo);
     },
   };
 }

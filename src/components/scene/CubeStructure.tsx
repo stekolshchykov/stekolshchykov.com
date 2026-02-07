@@ -54,9 +54,10 @@ export function createCubeStructure(config: CubeStructureConfig) {
     const lineMaterial = new LineBasicMaterial({
         color: 0x00ff41,
         transparent: true,
-        opacity: 0.4,
+        opacity: 0,
     });
     const wireframe = new LineSegments(edges, lineMaterial);
+    wireframe.visible = false; // Hide wireframe completely
     // Note: wireframe is returned separately so it can be added to WebGL scene if needed,
     // but typically logic puts it in the same group or parallel.
     // In original code, wireframe was added to webglScene, while cubeGroup (faces) to scene (CSS3D).
@@ -80,6 +81,8 @@ export function createCubeStructure(config: CubeStructureConfig) {
         // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
         // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
         element.style.borderRadius = '0px';
+        element.style.border = 'none';
+        element.style.outline = 'none';
         element.style.overflow = 'hidden';
         element.style.contain = 'layout style paint';
         element.style.willChange = 'transform';
@@ -125,5 +128,17 @@ export function createCubeStructure(config: CubeStructureConfig) {
         roots.forEach((root) => root.unmount());
     };
 
-    return { cubeGroup, wireframe, faceActors, dispose };
+    const updateLocale = (newLocale: Locale) => {
+        faces.forEach((face, index) => {
+            roots[index].render(
+                createElement(
+                    Suspense,
+                    { fallback: createElement('div', { style: { color: '#cbd5e1', padding: '1rem' } }, 'Loading...') },
+                    createElement(face.component, { locale: newLocale })
+                )
+            );
+        });
+    };
+
+    return { cubeGroup, wireframe, faceActors, dispose, updateLocale };
 }

@@ -67,6 +67,7 @@ export default function CubeApp() {
   const [isLoaderLeaving, setIsLoaderLeaving] = useState(false);
   const [isGameMode, setIsGameMode] = useState(false);
   const [joystickInput, setJoystickInput] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [lookJoystickInput, setLookJoystickInput] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const pulseTimerRef = useRef<number | null>(null);
   const pressedTimerRef = useRef<number | null>(null);
   const bootStartRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -121,11 +122,6 @@ export default function CubeApp() {
 
   useEffect(() => {
     logRuntime('debug', 'app-state', 'Layout mode changed', { isMobile });
-    if (isMobile) {
-      document.body.classList.add('mobile-active');
-    } else {
-      document.body.classList.remove('mobile-active');
-    }
   }, [isMobile]);
 
   useEffect(() => {
@@ -248,6 +244,7 @@ export default function CubeApp() {
         event.preventDefault();
         setIsGameMode(false);
         setJoystickInput({ x: 0, y: 0 });
+        setLookJoystickInput({ x: 0, y: 0 });
         return;
       }
       if (isGameMode) return;
@@ -285,6 +282,7 @@ export default function CubeApp() {
               onReady={handleSceneReady}
               isGameMode={isGameMode}
               joystickInput={joystickInput}
+              lookJoystickInput={lookJoystickInput}
               withSingularityBackground
             />
           </Suspense>
@@ -302,6 +300,7 @@ export default function CubeApp() {
                   if (!isGameMode) playButtonSound();
                   setIsGameMode((v) => !v);
                   setJoystickInput({ x: 0, y: 0 });
+                  setLookJoystickInput({ x: 0, y: 0 });
                 }}
                 aria-label={isGameMode ? 'Exit Game Mode' : 'Enter Game Mode'}
                 type="button"

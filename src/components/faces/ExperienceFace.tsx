@@ -1,7 +1,7 @@
 import type { Locale } from '../../content/stekolschikovContent';
 import { sourceTexts, uiTexts } from '../../content/stekolschikovContent';
 import { parseCooperationBlocks } from '../../content/textUtils';
-import { UILead, UIPage, UIPill, UITitle } from '../../ui-kit';
+import { UILead, UIList, UIListItem, UIPage, UIPill, UITitle } from '../../ui-kit';
 
 interface ExperienceFaceProps {
   locale: Locale;
@@ -18,17 +18,17 @@ export function ExperienceFace({ locale }: ExperienceFaceProps) {
       <UITitle className="terminal-typewriter">{source.cooperation_title}</UITitle>
       <UILead>{source.cooperation_post_title}</UILead>
 
-      <div className="cooperation-list">
+      <UIList className="cooperation-list">
         {blocks.map((block, index) => (
-          <section key={`${block.title}-${index}`} className="cooperation-item">
-            <div className="terminal-row" style={{ marginBottom: '8px', borderBottom: '1px dashed rgba(0,255,65,0.2)' }}>
-              <span style={{ color: 'var(--terminal-green-dim)' }}>[LOG_ENTRY_{1000 + index}]</span>
-              <span style={{ color: 'var(--terminal-green)' }}>{block.title || 'SYSTEM_MSG'}</span>
+          <UIListItem key={`${block.title}-${index}`} className="cooperation-item">
+            <div className="terminal-row header">
+              <span className="log-id">[LOG_ENTRY_{1000 + index}]</span>
+              <span className="log-title">{block.title || 'SYSTEM_MSG'}</span>
             </div>
-            <div dangerouslySetInnerHTML={{ __html: block.bodyHtml }} />
-          </section>
+            <div className="log-body" dangerouslySetInnerHTML={{ __html: block.bodyHtml }} />
+          </UIListItem>
         ))}
-      </div>
+      </UIList>
     </UIPage>
   );
 }

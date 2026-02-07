@@ -63,6 +63,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes('node_modules/three/examples')) return 'three-addons';
           if (id.includes('node_modules/three')) return 'three-core';
           if (id.includes('node_modules/react') || id.includes('node_modules/scheduler')) return 'react-core';
           if (

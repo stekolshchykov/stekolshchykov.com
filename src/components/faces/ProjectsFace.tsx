@@ -20,40 +20,42 @@ export function ProjectsFace({ locale }: ProjectsFaceProps) {
       <UILead>{source.about_me_post_title}</UILead>
 
       <div className="about-layout">
-        <img
-          className="about-layout__photo"
-          src="/me.jpg"
-          alt={ui.aboutPhotoAlt}
-          loading="lazy"
-        />
+        <UIBlock className="about-photo-block">
+          <img
+            className="about-layout__photo"
+            src="/me.jpg"
+            alt={ui.aboutPhotoAlt}
+            loading="lazy"
+          />
+        </UIBlock>
 
-        <div className="terminal-directory">
+        <UIBlock className="terminal-directory">
           <div className="terminal-row header">
-            <span style={{ width: '80px' }}>PERMS</span>
-            <span style={{ width: '60px' }}>SIZE</span>
-            <span style={{ width: '60px' }}>USER</span>
-            <span>NAME</span>
+            <span className="col-perms">PERMS</span>
+            <span className="col-size">SIZE</span>
+            <span className="col-user">USER</span>
+            <span className="col-name">NAME</span>
           </div>
           {facts.map((fact, index) => (
             <div key={fact.label} className="terminal-row">
-              <span className="file-perms" style={{ width: '80px', color: '#567' }}>drwxr-xr-x</span>
-              <span className="file-size" style={{ width: '60px', color: '#567' }}>4.0K</span>
-              <span className="file-user" style={{ width: '60px', color: 'var(--terminal-green)' }}>root</span>
-              <span className="file-name">
-                <span style={{ color: 'var(--terminal-green-dim)' }}>{fact.label}:</span> <span style={{ color: '#fff' }}>{fact.value}</span>
+              <span className="col-perms">drwxr-xr-x</span>
+              <span className="col-size">4.0K</span>
+              <span className="col-user">root</span>
+              <span className="col-name">
+                <span className="fact-label">{fact.label}:</span> <span className="fact-value">{fact.value}</span>
               </span>
             </div>
           ))}
           <div className="terminal-row">
-            <span className="file-perms" style={{ width: '80px', color: '#567' }}>-rw-r--r--</span>
-            <span className="file-size" style={{ width: '60px', color: '#567' }}>1.2M</span>
-            <span className="file-user" style={{ width: '60px', color: 'var(--terminal-green)' }}>root</span>
-            <span className="file-name" style={{ color: '#fff' }}>photo.jpg</span>
+            <span className="col-perms">-rw-r--r--</span>
+            <span className="col-size">1.2M</span>
+            <span className="col-user">root</span>
+            <span className="col-name">photo.jpg</span>
           </div>
-        </div>
+        </UIBlock>
       </div>
 
-      <UIBlock>
+      <UIBlock className="about-text">
         {paragraphs.map((paragraph) => (
           <p key={paragraph}>{paragraph}</p>
         ))}
