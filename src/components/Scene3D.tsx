@@ -136,7 +136,7 @@ export function Scene3D({
     minZoom,
     maxZoom,
     defaultCameraDistance,
-    // startAnimation // Intentionally omitted to isolate control
+    startAnimation
   });
 
   // Telemetry for Joystick Debugging
@@ -283,14 +283,16 @@ export function Scene3D({
         updatePhysics(lowPowerMode, deltaSeconds);
       } else {
         // Telemetry Logging in Game Mode
-        import('../observability/TelemetryLogger').then(({ TelemetryLogger }) => {
-          TelemetryLogger.getInstance().logFrame(
-            joystickInput,
-            lookJoystickInput,
-            camera,
-            isGameMode
-          );
-        });
+        if (camera) {
+          import('../observability/TelemetryLogger').then(({ TelemetryLogger }) => {
+            TelemetryLogger.getInstance().logFrame(
+              joystickInput,
+              lookJoystickInput,
+              camera,
+              isGameMode
+            );
+          });
+        }
       }
 
       // 2. Float Animation (Visibility is handled by useCubeSystem hook)
