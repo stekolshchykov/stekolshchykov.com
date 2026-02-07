@@ -22,6 +22,11 @@ const LOADER_LABELS: Record<Locale, string> = {
   en: 'Launching 3D scene...',
   uk: 'Запуск 3D-сцени...',
 };
+const LOADER_SUBTITLES: Record<Locale, string> = {
+  ru: 'Личное портфолио',
+  en: 'Personal portfolio',
+  uk: 'Особисте портфоліо',
+};
 
 
 const STORAGE_LOCALE_KEY = 'stekolschikov-locale';
@@ -269,7 +274,14 @@ export default function CubeApp() {
   return (
     <>
       <SEOHead locale={locale} activeFace={activeFace} />
-      {showLoader ? <LoadingScreen leaving={isLoaderLeaving} label={LOADER_LABELS[locale]} /> : null}
+      {showLoader ? (
+        <LoadingScreen
+          leaving={isLoaderLeaving}
+          label={LOADER_LABELS[locale]}
+          title={uiTexts[locale].personName}
+          subtitle={LOADER_SUBTITLES[locale]}
+        />
+      ) : null}
       {isMobile ? (
         <MobileSite
           locale={locale}
