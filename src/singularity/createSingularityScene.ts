@@ -320,6 +320,13 @@ export async function createSingularityScene(params: {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
     starsTexture.mapping = THREE.EquirectangularReflectionMapping;
     starsTexture.colorSpace = THREE.SRGBColorSpace;
+
+    // High-Res Asset Optimization: Enable Mipmaps and Trilinear Filtering to prevent aliasing
+    starsTexture.generateMipmaps = true;
+    starsTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    starsTexture.magFilter = THREE.LinearFilter;
+    starsTexture.anisotropy = (renderer as any).capabilities?.maxAnisotropy || 16;
+
     starsTexture.needsUpdate = true;
   } catch {
     starsTexture = makeFallbackStarsTexture();
