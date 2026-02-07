@@ -41,6 +41,7 @@ export function Scene3D({
   const webglContainerRef = useRef<HTMLDivElement>(null);
   const startAnimationRef = useRef<(() => void) | null>(null);
   const readyNotifiedRef = useRef(false);
+  const isGameModeRef = useRef(isGameMode);
 
   const viewportWidth = window.innerWidth;
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -89,6 +90,10 @@ export function Scene3D({
   useEffect(() => {
     lookJoystickInputRef.current = lookJoystickInput;
   }, [lookJoystickInput]);
+
+  useEffect(() => {
+    isGameModeRef.current = isGameMode;
+  }, [isGameMode]);
 
   // --- Hooks Initialization ---
 
@@ -277,21 +282,33 @@ export function Scene3D({
       scale: number;
       phase: number;
       phase2: number;
+      hue: number;
+      lightness: number;
+      velocity: Vector3;
+      position: Vector3;
     };
     const dustParticles: DustParticle[] = [];
     const dustDummy = new Object3D();
+    const dustOrbitTarget = new Vector3();
+    const dustWander = new Vector3();
+    const dustFinalPosition = new Vector3();
+    const dustZero = new Vector3(0, 0, 0);
     const dustCount = lowPowerMode ? 48 : 84;
     const dustMinRadius = cubeSize * (lowPowerMode ? 0.5 : 0.55);
     const dustMaxRadius = cubeSize * (lowPowerMode ? 0.9 : 1.15);
     const dustMaxHeight = cubeSize * (lowPowerMode ? 0.12 : 0.18);
+    const dustScatterRadius = cubeSize * (lowPowerMode ? 1.6 : 2.25);
+    const dustScatterClamp = cubeSize * (lowPowerMode ? 2.4 : 3.2);
     let dustMesh: InstancedMesh | null = null;
     let dustGeometry: SphereGeometry | null = null;
     let dustMaterial: MeshBasicMaterial | null = null;
+    let dustWasGameMode = isGameModeRef.current;
+    let dustTransition = 1;
 
     if (webglSceneRef.current) {
       dustGeometry = new SphereGeometry(lowPowerMode ? 3.0 : 4.2, 8, 8);
       dustMaterial = new MeshBasicMaterial({
-        color: 0x9bffbf,
+        color: 0xffffff,
         transparent: true,
         opacity: lowPowerMode ? 0.42 : 0.6,
         blending: AdditiveBlending,
@@ -307,8 +324,22 @@ export function Scene3D({
         const baseRadius = dustMinRadius + Math.random() * (dustMaxRadius - dustMinRadius);
         const baseHeight = (Math.random() - 0.5) * dustMaxHeight * 2;
         const scale = (lowPowerMode ? 0.65 : 0.8) + Math.random() * (lowPowerMode ? 0.8 : 1.3);
+        const hue = 0.48 + Math.random() * 0.4;
+        const lightness = (lowPowerMode ? 0.66 : 0.7) + Math.random() * 0.18;
+        const angle = Math.random() * Math.PI * 2;
+        const scatterRadius = dustScatterRadius * (0.6 + Math.random() * 0.7);
+        const scatterAngle = Math.random() * Math.PI * 2;
+        const scatterHeight = (Math.random() - 0.5) * dustMaxHeight * 6;
+        const scatterPos = new Vector3(
+          Math.cos(scatterAngle) * scatterRadius,
+          scatterHeight,
+          Math.sin(scatterAngle) * scatterRadius
+        );
+        if (!isGameModeRef.current) {
+          scatterPos.set(Math.cos(angle) * baseRadius, baseHeight, Math.sin(angle) * baseRadius);
+        }
         const particle: DustParticle = {
-          angle: Math.random() * Math.PI * 2,
+          angle,
           speed: 0.12 + Math.random() * 0.35,
           baseRadius,
           baseHeight,
@@ -320,13 +351,21 @@ export function Scene3D({
           scale,
           phase: Math.random() * Math.PI * 2,
           phase2: Math.random() * Math.PI * 2,
+          hue,
+          lightness,
+          velocity: new Vector3(
+            (Math.random() - 0.5) * (lowPowerMode ? 26 : 42),
+            (Math.random() - 0.5) * (lowPowerMode ? 18 : 30),
+            (Math.random() - 0.5) * (lowPowerMode ? 26 : 42)
+          ),
+          position: scatterPos,
         };
         dustParticles.push(particle);
 
-        color.setHSL(0.36 + Math.random() * 0.08, 0.7, 0.7 + Math.random() * 0.15);
+        color.setHSL(hue, 0.55, lightness);
         dustMesh.setColorAt(i, color);
 
-        dustDummy.position.set(0, 0, 0);
+        dustDummy.position.copy(scatterPos);
         dustDummy.scale.setScalar(scale);
         dustDummy.updateMatrix();
         dustMesh.setMatrixAt(i, dustDummy.matrix);
@@ -343,12 +382,15 @@ export function Scene3D({
       // Motion Check Optimization
       const rotationErrorX = targetRotationRef.current.x - currentRotationRef.current.x;
       const rotationErrorY = targetRotationRef.current.y - currentRotationRef.current.y;
+      const gameMode = isGameModeRef.current;
+      const joystick = joystickInputRef.current;
+      const lookJoystick = lookJoystickInputRef.current;
       const hasJoystickMotion =
-        isGameMode &&
-        (Math.abs(joystickInput.x) > 0.01 ||
-          Math.abs(joystickInput.y) > 0.01 ||
-          Math.abs(lookJoystickInput.x) > 0.01 ||
-          Math.abs(lookJoystickInput.y) > 0.01);
+        gameMode &&
+        (Math.abs(joystick.x) > 0.01 ||
+          Math.abs(joystick.y) > 0.01 ||
+          Math.abs(lookJoystick.x) > 0.01 ||
+          Math.abs(lookJoystick.y) > 0.01);
       const hasMotion =
         isDraggingRef.current ||
         cameraFlightRef.current.active ||
@@ -374,17 +416,17 @@ export function Scene3D({
       const camera = cameraRef.current; // Primary declaration at the top of the loop
 
       // 1. Update Physics / Camera Controls
-      if (!isGameMode) {
+      if (!gameMode) {
         updatePhysics(lowPowerMode, deltaSeconds);
       } else {
         // Telemetry Logging in Game Mode
         if (camera) {
           import('../observability/TelemetryLogger').then(({ TelemetryLogger }) => {
             TelemetryLogger.getInstance().logFrame(
-              joystickInput,
-              lookJoystickInput,
+              joystick,
+              lookJoystick,
               camera,
-              isGameMode
+              gameMode
             );
           });
         }
@@ -403,7 +445,7 @@ export function Scene3D({
       // 2b. Joystick-based free flight in game mode (super fast - reach sun in ~10 sec)
       let gameCameraOverride: Vector3 | null = null;
       let gameLookAtOverride: Vector3 | null = null;
-      if (isGameMode && cameraRef.current) {
+      if (gameMode && cameraRef.current) {
         const cam = cameraRef.current;
         const moveSpeed = lowPowerMode ? 55 : 75;
         // Increased look speed by ~50% to improve responsiveness
@@ -465,7 +507,7 @@ export function Scene3D({
       // Duplicate camera declaration removed here to fix scope error
 
       if (camera) {
-        if (isGameMode && gameCameraOverride && gameLookAtOverride) {
+        if (gameMode && gameCameraOverride && gameLookAtOverride) {
           camera.position.copy(gameCameraOverride);
           camera.lookAt(gameLookAtOverride);
           camera.rotation.z = 0;
@@ -632,6 +674,13 @@ export function Scene3D({
 
       // 6b. Update cube dust particles (bounded orbit around cube)
       if (dustMesh && dustParticles.length > 0) {
+        if (gameMode !== dustWasGameMode) {
+          dustWasGameMode = gameMode;
+          dustTransition = 0;
+        }
+        dustTransition = Math.min(1, dustTransition + deltaSeconds * (lowPowerMode ? 0.6 : 1));
+        const attachStrength = gameMode ? 0 : dustTransition;
+        const scatterStrength = gameMode ? dustTransition : 1 - dustTransition;
         const timeSec = currentTime * 0.001;
         for (let i = 0; i < dustParticles.length; i += 1) {
           const dust = dustParticles[i];
@@ -643,8 +692,34 @@ export function Scene3D({
           const driftAngle = dust.drift * timeSec;
           const x = Math.cos(dust.angle + driftAngle) * radius;
           const z = Math.sin(dust.angle + driftAngle) * radius;
-          dustDummy.position.set(x, floatY + height, z);
-          dustDummy.scale.setScalar(dust.scale);
+          const orbitX = x;
+          const orbitY = floatY + height;
+          const orbitZ = z;
+          dustOrbitTarget.set(orbitX, orbitY, orbitZ);
+
+          if (scatterStrength > 0) {
+            dustWander.set(
+              (Math.sin(timeSec * 0.6 + dust.phase) + Math.cos(timeSec * 0.33 + dust.phase2)) * 0.4,
+              Math.cos(timeSec * 0.5 + dust.phase) * 0.28,
+              (Math.sin(timeSec * 0.42 + dust.phase2) + Math.cos(timeSec * 0.27 + dust.phase)) * 0.36
+            );
+            dust.velocity.addScaledVector(dustWander, deltaSeconds * (lowPowerMode ? 0.9 : 1.3));
+            dust.velocity.multiplyScalar(Math.pow(0.985, deltaSeconds * 60));
+            dust.position.addScaledVector(dust.velocity, deltaSeconds);
+            if (dust.position.length() > dustScatterClamp) {
+              dust.position.multiplyScalar(dustScatterClamp / dust.position.length());
+              dust.velocity.multiplyScalar(0.45);
+            }
+          }
+
+          if (attachStrength > 0) {
+            dust.position.lerp(dustOrbitTarget, attachStrength * (lowPowerMode ? 0.08 : 0.12));
+            dust.velocity.lerp(dustZero, attachStrength * 0.12);
+          }
+
+          dustFinalPosition.copy(dust.position).lerp(dustOrbitTarget, attachStrength);
+          dustDummy.position.copy(dustFinalPosition);
+          dustDummy.scale.setScalar(dust.scale * (0.85 + attachStrength * 0.15));
           dustDummy.updateMatrix();
           dustMesh.setMatrixAt(i, dustDummy.matrix);
         }

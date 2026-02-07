@@ -19,6 +19,7 @@ export function useCameraControls({
     const currentRotationRef = useRef({ x: 0, y: 0 });
     const targetRotationRef = useRef({ x: 0, y: 0 });
     const velocityRef = useRef({ x: 0, y: 0 });
+    const inertiaRef = useRef({ x: 0, y: 0 });
     const userCameraDistanceRef = useRef(defaultCameraDistance);
     const isDraggingRef = useRef(false);
     const previousMousePositionRef = useRef({ x: 0, y: 0 });
@@ -41,6 +42,7 @@ export function useCameraControls({
             logRuntime('debug', 'scene3d-controls', 'Drag started', { x: e.clientX, y: e.clientY });
             previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
             velocityRef.current = { x: 0, y: 0 };
+            inertiaRef.current = { x: 0, y: 0 };
             startAnimation();
         };
 
@@ -64,6 +66,7 @@ export function useCameraControls({
 
         const onMouseUp = () => {
             isDraggingRef.current = false;
+            inertiaRef.current = { ...velocityRef.current };
             logRuntime('debug', 'scene3d-controls', 'Drag ended');
         };
 
@@ -93,6 +96,7 @@ export function useCameraControls({
 
     const updatePhysics = (lowPowerMode: boolean, deltaSeconds = 1 / 60) => {
         const safeDelta = Math.min(0.05, Math.max(1 / 240, deltaSeconds));
+        const frameScale = safeDelta * 60;
 
         const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
         const shortestAngleDelta = (from: number, to: number) =>
@@ -105,6 +109,7 @@ export function useCameraControls({
             transitionRef.current.active = false;
             transitionRef.current.elapsed = 0;
             lastTargetRef.current = { ...targetRotationRef.current };
+            inertiaRef.current = { x: 0, y: 0 };
         } else {
             const target = targetRotationRef.current;
             const lastTarget = lastTargetRef.current;
@@ -113,6 +118,7 @@ export function useCameraControls({
             const targetChanged = Math.abs(deltaTargetX) > 0.0008 || Math.abs(deltaTargetY) > 0.0008;
 
             if (targetChanged) {
+                inertiaRef.current = { x: 0, y: 0 };
                 const travel = Math.hypot(deltaTargetX, deltaTargetY);
                 const duration = Math.min(2.5, Math.max(1.5, 1.4 + travel * 0.5));
                 transitionRef.current = {
@@ -142,12 +148,26 @@ export function useCameraControls({
                     currentRotationRef.current.y = to.y;
                 }
             } else {
-                // Subtle settle to target to avoid micro-jitter.
-                const snap = lowPowerMode ? 0.08 : 0.12;
-                const dx = target.x - currentRotationRef.current.x;
-                const dy = shortestAngleDelta(currentRotationRef.current.y, target.y);
-                currentRotationRef.current.x += dx * snap;
-                currentRotationRef.current.y += dy * snap;
+                const inertia = inertiaRef.current;
+                const inertiaMagnitude = Math.abs(inertia.x) + Math.abs(inertia.y);
+                if (inertiaMagnitude > (lowPowerMode ? 0.00018 : 0.00012)) {
+                    currentRotationRef.current.x += inertia.x * frameScale;
+                    currentRotationRef.current.y += inertia.y * frameScale;
+                    const damping = lowPowerMode ? 0.86 : 0.9;
+                    const decay = Math.pow(damping, frameScale);
+                    inertia.x *= decay;
+                    inertia.y *= decay;
+                    targetRotationRef.current = { ...currentRotationRef.current };
+                    lastTargetRef.current = { ...targetRotationRef.current };
+                } else {
+                    inertiaRef.current = { x: 0, y: 0 };
+                    // Subtle settle to target to avoid micro-jitter.
+                    const snap = lowPowerMode ? 0.08 : 0.12;
+                    const dx = target.x - currentRotationRef.current.x;
+                    const dy = shortestAngleDelta(currentRotationRef.current.y, target.y);
+                    currentRotationRef.current.x += dx * snap;
+                    currentRotationRef.current.y += dy * snap;
+                }
             }
         }
 
