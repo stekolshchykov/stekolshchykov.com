@@ -10,9 +10,8 @@ import { useCinematicCamera } from './scene/hooks/useCinematicCamera';
 import { useAdaptiveQuality } from './scene/hooks/useAdaptiveQuality';
 import { usePostProcessing } from './scene/hooks/usePostProcessing';
 import { FaceActor } from './scene/CubeStructure';
-import { AdditiveBlending, Color, DynamicDrawUsage, InstancedMesh, MeshBasicMaterial, Object3D, SphereGeometry, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import { useCubeSystem } from './scene/hooks/useCubeSystem';
-import { useSingularityPhysics } from './scene/hooks/useSingularityPhysics';
 
 // Toggle for Cube Visibility
 const SHOW_CUBE = true;
@@ -112,12 +111,6 @@ export function Scene3D({
     lowPowerMode,
     initialized,
     enabled: !withSingularityBackground,
-  });
-
-  const { updateSingularityPhysics } = useSingularityPhysics({
-    sceneRef: webglSceneRef,
-    lowPowerMode,
-    initialized,
   });
 
   const { composerRef } = usePostProcessing({
@@ -269,112 +262,6 @@ export function Scene3D({
     let hasPreviousCameraPosition = false;
     let activeFaceIndex = -1;
 
-    type DustParticle = {
-      angle: number;
-      speed: number;
-      baseRadius: number;
-      baseHeight: number;
-      wobble: number;
-      wobbleSpeed: number;
-      bob: number;
-      bobSpeed: number;
-      drift: number;
-      scale: number;
-      phase: number;
-      phase2: number;
-      hue: number;
-      lightness: number;
-      velocity: Vector3;
-      position: Vector3;
-    };
-    const dustParticles: DustParticle[] = [];
-    const dustDummy = new Object3D();
-    const dustOrbitTarget = new Vector3();
-    const dustWander = new Vector3();
-    const dustFinalPosition = new Vector3();
-    const dustZero = new Vector3(0, 0, 0);
-    const dustCount = lowPowerMode ? 48 : 84;
-    const dustMinRadius = cubeSize * (lowPowerMode ? 0.5 : 0.55);
-    const dustMaxRadius = cubeSize * (lowPowerMode ? 0.9 : 1.15);
-    const dustMaxHeight = cubeSize * (lowPowerMode ? 0.12 : 0.18);
-    const dustScatterRadius = cubeSize * (lowPowerMode ? 1.6 : 2.25);
-    const dustScatterClamp = cubeSize * (lowPowerMode ? 2.4 : 3.2);
-    let dustMesh: InstancedMesh | null = null;
-    let dustGeometry: SphereGeometry | null = null;
-    let dustMaterial: MeshBasicMaterial | null = null;
-    let dustWasGameMode = isGameModeRef.current;
-    let dustTransition = 1;
-
-    if (webglSceneRef.current) {
-      dustGeometry = new SphereGeometry(lowPowerMode ? 3.0 : 4.2, 8, 8);
-      dustMaterial = new MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: lowPowerMode ? 0.42 : 0.6,
-        blending: AdditiveBlending,
-        depthWrite: false,
-        vertexColors: true,
-      });
-      dustMesh = new InstancedMesh(dustGeometry, dustMaterial, dustCount);
-      dustMesh.instanceMatrix.setUsage(DynamicDrawUsage);
-      dustMesh.frustumCulled = false;
-
-      const color = new Color();
-      for (let i = 0; i < dustCount; i += 1) {
-        const baseRadius = dustMinRadius + Math.random() * (dustMaxRadius - dustMinRadius);
-        const baseHeight = (Math.random() - 0.5) * dustMaxHeight * 2;
-        const scale = (lowPowerMode ? 0.65 : 0.8) + Math.random() * (lowPowerMode ? 0.8 : 1.3);
-        const hue = 0.48 + Math.random() * 0.4;
-        const lightness = (lowPowerMode ? 0.66 : 0.7) + Math.random() * 0.18;
-        const angle = Math.random() * Math.PI * 2;
-        const scatterRadius = dustScatterRadius * (0.6 + Math.random() * 0.7);
-        const scatterAngle = Math.random() * Math.PI * 2;
-        const scatterHeight = (Math.random() - 0.5) * dustMaxHeight * 6;
-        const scatterPos = new Vector3(
-          Math.cos(scatterAngle) * scatterRadius,
-          scatterHeight,
-          Math.sin(scatterAngle) * scatterRadius
-        );
-        if (!isGameModeRef.current) {
-          scatterPos.set(Math.cos(angle) * baseRadius, baseHeight, Math.sin(angle) * baseRadius);
-        }
-        const particle: DustParticle = {
-          angle,
-          speed: 0.12 + Math.random() * 0.35,
-          baseRadius,
-          baseHeight,
-          wobble: (lowPowerMode ? 8 : 14) + Math.random() * (lowPowerMode ? 10 : 18),
-          wobbleSpeed: 0.2 + Math.random() * 0.5,
-          bob: (lowPowerMode ? 6 : 12) + Math.random() * (lowPowerMode ? 8 : 14),
-          bobSpeed: 0.15 + Math.random() * 0.45,
-          drift: (Math.random() - 0.5) * 0.6,
-          scale,
-          phase: Math.random() * Math.PI * 2,
-          phase2: Math.random() * Math.PI * 2,
-          hue,
-          lightness,
-          velocity: new Vector3(
-            (Math.random() - 0.5) * (lowPowerMode ? 26 : 42),
-            (Math.random() - 0.5) * (lowPowerMode ? 18 : 30),
-            (Math.random() - 0.5) * (lowPowerMode ? 26 : 42)
-          ),
-          position: scatterPos,
-        };
-        dustParticles.push(particle);
-
-        color.setHSL(hue, 0.55, lightness);
-        dustMesh.setColorAt(i, color);
-
-        dustDummy.position.copy(scatterPos);
-        dustDummy.scale.setScalar(scale);
-        dustDummy.updateMatrix();
-        dustMesh.setMatrixAt(i, dustDummy.matrix);
-      }
-      if (dustMesh.instanceColor) dustMesh.instanceColor.needsUpdate = true;
-
-      webglSceneRef.current.add(dustMesh);
-    }
-
     const animate = (currentTime: number) => {
       animationId = 0;
       frameCount++;
@@ -485,16 +372,6 @@ export function Scene3D({
           gameMove.normalize();
         }
 
-        // --- BLACK HOLE GRAVITY PULL ---
-        const BLACK_HOLE_POSITION = new Vector3(-650, -70, -720);
-        const toBH = new Vector3().subVectors(BLACK_HOLE_POSITION, gamePositionRef.current);
-        const distSq = toBH.lengthSq();
-        if (distSq > 1000) {
-          const pullForce = Math.min(2200, 2500000 / (distSq + 2000));
-          const pullVec = toBH.normalize().multiplyScalar(pullForce * deltaSeconds);
-          gamePositionRef.current.add(pullVec);
-        }
-
         gamePositionRef.current.addScaledVector(gameMove, moveSpeed * deltaSeconds);
         gameCameraOverride = gamePositionRef.current;
         gameLookAtOverride = gameLookTarget.copy(gamePositionRef.current).addScaledVector(gameForward, 200);
@@ -577,9 +454,6 @@ export function Scene3D({
           if (!withSingularityBackground) {
             updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
           }
-
-          // Update Singularity Particles
-          updateSingularityPhysics(deltaSeconds, currentTime * 0.001);
         }
       }
 
@@ -672,60 +546,6 @@ export function Scene3D({
         wireframe.scale.set(wireScale, wireScale, wireScale);
       }
 
-      // 6b. Update cube dust particles (bounded orbit around cube)
-      if (dustMesh && dustParticles.length > 0) {
-        if (gameMode !== dustWasGameMode) {
-          dustWasGameMode = gameMode;
-          dustTransition = 0;
-        }
-        dustTransition = Math.min(1, dustTransition + deltaSeconds * (lowPowerMode ? 0.6 : 1));
-        const attachStrength = gameMode ? 0 : dustTransition;
-        const scatterStrength = gameMode ? dustTransition : 1 - dustTransition;
-        const timeSec = currentTime * 0.001;
-        for (let i = 0; i < dustParticles.length; i += 1) {
-          const dust = dustParticles[i];
-          dust.angle += deltaSeconds * dust.speed;
-          const wobble = Math.sin(timeSec * dust.wobbleSpeed + dust.phase) * dust.wobble;
-          const bob = Math.cos(timeSec * dust.bobSpeed + dust.phase2) * dust.bob;
-          const radius = Math.min(dustMaxRadius, Math.max(dustMinRadius, dust.baseRadius + wobble));
-          const height = dust.baseHeight + bob;
-          const driftAngle = dust.drift * timeSec;
-          const x = Math.cos(dust.angle + driftAngle) * radius;
-          const z = Math.sin(dust.angle + driftAngle) * radius;
-          const orbitX = x;
-          const orbitY = floatY + height;
-          const orbitZ = z;
-          dustOrbitTarget.set(orbitX, orbitY, orbitZ);
-
-          if (scatterStrength > 0) {
-            dustWander.set(
-              (Math.sin(timeSec * 0.6 + dust.phase) + Math.cos(timeSec * 0.33 + dust.phase2)) * 0.4,
-              Math.cos(timeSec * 0.5 + dust.phase) * 0.28,
-              (Math.sin(timeSec * 0.42 + dust.phase2) + Math.cos(timeSec * 0.27 + dust.phase)) * 0.36
-            );
-            dust.velocity.addScaledVector(dustWander, deltaSeconds * (lowPowerMode ? 0.9 : 1.3));
-            dust.velocity.multiplyScalar(Math.pow(0.985, deltaSeconds * 60));
-            dust.position.addScaledVector(dust.velocity, deltaSeconds);
-            if (dust.position.length() > dustScatterClamp) {
-              dust.position.multiplyScalar(dustScatterClamp / dust.position.length());
-              dust.velocity.multiplyScalar(0.45);
-            }
-          }
-
-          if (attachStrength > 0) {
-            dust.position.lerp(dustOrbitTarget, attachStrength * (lowPowerMode ? 0.08 : 0.12));
-            dust.velocity.lerp(dustZero, attachStrength * 0.12);
-          }
-
-          dustFinalPosition.copy(dust.position).lerp(dustOrbitTarget, attachStrength);
-          dustDummy.position.copy(dustFinalPosition);
-          dustDummy.scale.setScalar(dust.scale * (0.85 + attachStrength * 0.15));
-          dustDummy.updateMatrix();
-          dustMesh.setMatrixAt(i, dustDummy.matrix);
-        }
-        dustMesh.instanceMatrix.needsUpdate = true;
-      }
-
       // 7. Render
       const scene = sceneRef.current;
       const webglScene = webglSceneRef.current;
@@ -774,11 +594,6 @@ export function Scene3D({
       window.removeEventListener('resize', handleResize);
       animationId = 0;
       startAnimationRef.current = null;
-      if (dustMesh && webglSceneRef.current) {
-        webglSceneRef.current.remove(dustMesh);
-      }
-      dustGeometry?.dispose();
-      dustMaterial?.dispose();
     };
   }, [
     initialized, targetFPS, lowPowerMode, floatAmplitude, cubeSize, activeFaceOpacity, inactiveFaceOpacity, prefersReducedMotion,
