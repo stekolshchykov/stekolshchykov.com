@@ -7,17 +7,32 @@ export function GithubHeatmap() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchGitHubActivity(githubUsername).then(data => {
-            setStats(data);
-            setLoading(false);
-        });
+        let alive = true;
+        fetchGitHubActivity(githubUsername)
+            .then((data) => {
+                if (!alive) return;
+                setStats(data);
+            })
+            .catch(() => {
+                if (!alive) return;
+                setStats(null);
+            })
+            .finally(() => {
+                if (!alive) return;
+                setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
     }, []);
 
     if (loading) {
         return <div className="github-heatmap-loading">Loading Activity...</div>;
     }
 
-    if (!stats) return null;
+    if (!stats) {
+        return <div className="github-heatmap-loading">Activity unavailable</div>;
+    }
 
     return (
         <div className="github-heatmap-container">

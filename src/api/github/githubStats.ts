@@ -11,66 +11,91 @@ export interface GitHubStats {
 }
 
 const STORAGE_KEY = 'github-private-activity';
+const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
 
-/**
- * Generates a consistent pseudo-random pattern of activity based on a seed.
- */
-function generateMockActivity(username: string): GitHubStats {
-    const seed = username.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const now = new Date();
+type GitHubApiResponse = {
+    total?: { lastYear?: number };
+    contributions?: Array<{ date: string; count: number; level?: number }>;
+};
+
+function clampLevel(level: number): 0 | 1 | 2 | 3 | 4 {
+    if (level <= 0) return 0;
+    if (level === 1) return 1;
+    if (level === 2) return 2;
+    if (level === 3) return 3;
+    return 4;
+}
+
+function normalizeContributions(username: string, data: GitHubApiResponse): GitHubStats {
+    const contributions = data.contributions ?? [];
     const weeks: ContributionDay[][] = [];
     let total = 0;
 
-    // Generate 52 weeks of data
-    for (let w = 0; w < 52; w++) {
-        const week: ContributionDay[] = [];
-        for (let d = 0; d < 7; d++) {
-            const date = new Date(now);
-            date.setDate(date.getDate() - (52 - w) * 7 + d);
-
-            // Pseudo-random count based on seed, week and day
-            const val = Math.sin(seed + w * 0.5 + d * 0.2) * 5 + Math.cos(w * 0.1) * 3 + 2;
-            const count = Math.max(0, Math.floor(val));
-
-            let level: 0 | 1 | 2 | 3 | 4 = 0;
-            if (count > 8) level = 4;
-            else if (count > 5) level = 3;
-            else if (count > 2) level = 2;
-            else if (count > 0) level = 1;
-
-            week.push({
-                date: date.toISOString().split('T')[0],
-                count,
-                level
-            });
+    for (let i = 0; i < contributions.length; i += 7) {
+        const slice = contributions.slice(i, i + 7).map((day) => {
+            const count = Math.max(0, Math.floor(day.count ?? 0));
+            const level = day.level === undefined ? clampLevel(count === 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 8 ? 3 : 4) : clampLevel(day.level);
             total += count;
+            return {
+                date: day.date,
+                count,
+                level,
+            } as ContributionDay;
+        });
+        if (slice.length > 0) {
+            weeks.push(slice);
         }
-        weeks.push(week);
     }
 
+    const totalFromApi = data.total?.lastYear;
     return {
-        totalContributions: total,
+        totalContributions: typeof totalFromApi === 'number' ? totalFromApi : total,
         weeks,
-        username
+        username,
     };
 }
 
 export async function fetchGitHubActivity(username: string): Promise<GitHubStats> {
-    // Sync with localStorage for "persistence"
-    const cached = localStorage.getItem(`${STORAGE_KEY}-${username}`);
-    if (cached) {
-        try {
-            return JSON.parse(cached);
-        } catch (e) {
-            console.error('Failed to parse cached github data', e);
+    const cacheKey = `${STORAGE_KEY}-${username}`;
+    const now = Date.now();
+    let cachedStats: GitHubStats | null = null;
+    let cachedAt: number | null = null;
+
+    if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached) as { stats?: GitHubStats; cachedAt?: number } | GitHubStats;
+                if ('stats' in parsed) {
+                    cachedStats = parsed.stats ?? null;
+                    cachedAt = typeof parsed.cachedAt === 'number' ? parsed.cachedAt : null;
+                } else {
+                    cachedStats = parsed as GitHubStats;
+                }
+            } catch (e) {
+                console.error('Failed to parse cached github data', e);
+            }
         }
     }
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
+    if (cachedStats && cachedAt && now - cachedAt < CACHE_TTL_MS) {
+        return cachedStats;
+    }
 
-    const stats = generateMockActivity(username);
-    localStorage.setItem(`${STORAGE_KEY}-${username}`, JSON.stringify(stats));
-
-    return stats;
+    const url = `https://github-contributions-api.jogruber.de/v4/${encodeURIComponent(username)}?y=last`;
+    try {
+        const response = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!response.ok) {
+            throw new Error(`GitHub activity request failed (${response.status})`);
+        }
+        const data = (await response.json()) as GitHubApiResponse;
+        const stats = normalizeContributions(username, data);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(cacheKey, JSON.stringify({ stats, cachedAt: now }));
+        }
+        return stats;
+    } catch (error) {
+        if (cachedStats) return cachedStats;
+        throw error;
+    }
 }
