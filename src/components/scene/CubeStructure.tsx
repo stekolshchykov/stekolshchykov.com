@@ -76,17 +76,12 @@ export function createCubeStructure(config: CubeStructureConfig) {
         element.style.width = `${faceSize}px`;
         element.style.height = `${faceSize}px`;
         element.style.padding = `${facePadding}px`;
-        element.style.background = `linear-gradient(135deg, rgba(8, 15, 26, ${faceAlpha}) 0%, rgba(13, 22, 35, ${Math.max(0.55, faceAlpha - 0.1)}) 100%)`;
-        element.style.border = `3px solid ${face.color}`;
+        // Removed inline styles to allow CSS classes in app.css to control the Glassmorphism look
+        // background, border, boxShadow, backdropFilter are now handled by .cube-face-shell
         element.style.borderRadius = isPhone ? '16px' : '24px';
-        element.style.boxShadow = `0 0 42px ${face.color}30, inset 0 0 30px ${face.color}08`;
         element.style.overflow = 'hidden';
         element.style.contain = 'layout style paint';
         element.style.willChange = 'transform';
-        // Backdrop filter removed to prevent text blurring bug
-        // if (!lowPowerMode) {
-        //     element.style.backdropFilter = 'blur(2px)';
-        // }
 
         const scrollHost = document.createElement('div');
         scrollHost.className = 'cube-face-scroll';
