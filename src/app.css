@@ -2567,6 +2567,15 @@
   box-shadow: 0 0 10px var(--terminal-green);
 }
 
+/* Prevent hover scaling inside cube faces to avoid clipping */
+.cube-face-shell .face-block:hover,
+.cube-face-shell .work-card:hover,
+.cube-face-shell .skill-item:hover,
+.cube-face-shell .github-heatmap-cell:hover {
+  transform: none;
+  animation: none;
+}
+
 .github-heatmap-footer {
   display: flex;
   align-items: center;
