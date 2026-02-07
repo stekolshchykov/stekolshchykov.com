@@ -136,8 +136,17 @@ export function Scene3D({
     minZoom,
     maxZoom,
     defaultCameraDistance,
-    startAnimation
+    // startAnimation // Intentionally omitted to isolate control
   });
+
+  // Telemetry for Joystick Debugging
+  useEffect(() => {
+    if (isGameMode) {
+      import('../observability/TelemetryLogger').then(({ TelemetryLogger }) => {
+        TelemetryLogger.getInstance().start();
+      });
+    }
+  }, [isGameMode]);
 
   useEffect(() => {
     applyStarQuality({
@@ -270,10 +279,18 @@ export function Scene3D({
       reportFrame(deltaSeconds);
 
       // 1. Update Physics / Camera Controls
-      // Only update orbital controls if NOT in game mode.
-      // In Game Mode, we use the joystick logic below (step 2b).
       if (!isGameMode) {
         updatePhysics(lowPowerMode, deltaSeconds);
+      } else {
+        // Telemetry Logging in Game Mode
+        import('../observability/TelemetryLogger').then(({ TelemetryLogger }) => {
+          TelemetryLogger.getInstance().logFrame(
+            joystickInput,
+            lookJoystickInput,
+            camera,
+            isGameMode
+          );
+        });
       }
 
       // 2. Float Animation (Visibility is handled by useCubeSystem hook)
