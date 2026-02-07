@@ -300,7 +300,7 @@ export async function createSingularityScene(params: {
   const texLoader = new THREE.TextureLoader();
 
   const noiseDeepUrl = publicUrl('.local/singularity/noise_deep.png');
-  const nebulaUrl = publicUrl('assets/nebula_background_2.png');
+  const nebulaUrl = publicUrl('assets/nebula_background.jpg');
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -320,11 +320,6 @@ export async function createSingularityScene(params: {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
     starsTexture.mapping = THREE.EquirectangularReflectionMapping;
     starsTexture.colorSpace = THREE.SRGBColorSpace;
-    // Fix for pixelation: Force LinearFilter and use max Anisotropy
-    starsTexture.minFilter = THREE.LinearFilter;
-    starsTexture.magFilter = THREE.LinearFilter;
-    starsTexture.generateMipmaps = false;
-    starsTexture.anisotropy = (renderer as any).capabilities?.maxAnisotropy || 16;
     starsTexture.needsUpdate = true;
   } catch {
     starsTexture = makeFallbackStarsTexture();
