@@ -351,11 +351,12 @@ export function Scene3D({
         gameCameraOverride = gamePositionRef.current;
         gameLookAtOverride = gameLookTarget.copy(gamePositionRef.current).addScaledVector(gameForward, 200);
       }
-      const camera = cameraRef.current;
       // Initialize flight variables with defaults so they are available for cube effects
       let flightEnvelope = 0;
       let flightSwirl = 0;
       let burst = 0;
+
+      const camera = cameraRef.current; // This line is moved to the top of the animate function
 
       if (camera) {
         if (isGameMode && gameCameraOverride && gameLookAtOverride) {
