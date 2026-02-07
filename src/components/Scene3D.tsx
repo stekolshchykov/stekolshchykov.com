@@ -9,8 +9,8 @@ import { useCameraControls } from './scene/hooks/useCameraControls';
 import { useCinematicCamera } from './scene/hooks/useCinematicCamera';
 import { useAdaptiveQuality } from './scene/hooks/useAdaptiveQuality';
 import { usePostProcessing } from './scene/hooks/usePostProcessing';
-import { createCubeStructure, FaceActor } from './scene/CubeStructure';
-import { Vector3, Group, LineSegments } from 'three';
+import { FaceActor } from './scene/CubeStructure';
+import { Vector3 } from 'three';
 import { useCubeSystem } from './scene/hooks/useCubeSystem';
 
 // Toggle for Cube Visibility
