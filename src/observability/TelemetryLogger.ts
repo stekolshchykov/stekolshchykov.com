@@ -1,4 +1,4 @@
-import { Vector3, Euler, Camera } from 'three';
+import { Camera } from 'three';
 
 export interface TelemetryFrame {
     timestamp: number;
