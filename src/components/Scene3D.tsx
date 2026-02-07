@@ -11,6 +11,7 @@ import { useAdaptiveQuality } from './scene/hooks/useAdaptiveQuality';
 import { usePostProcessing } from './scene/hooks/usePostProcessing';
 import { createCubeStructure, FaceActor } from './scene/CubeStructure';
 import { Vector3, Group, LineSegments } from 'three';
+import { useCubeSystem } from './scene/hooks/useCubeSystem';
 
 // Toggle for Cube Visibility
 const SHOW_CUBE = true;
@@ -188,52 +189,24 @@ export function Scene3D({
     lockCamera: lockCameraToActiveFace,
   });
 
-  // 6. Cube Structure
-  const cubeRefs = useRef<{
-    cubeGroup: Group;
-    wireframe: LineSegments;
-    faceActors: FaceActor[];
-  } | null>(null);
-
-  // --- Cube Lifecycle ---
-  // Removed hasCreatedCube ref to allow recreation on prop change (locale)
-
-  useEffect(() => {
-    // Reset if initialization is lost (e.g. StrictMode or Context Loss)
-    if (!initialized) return;
-
-    // Only create cube when initialized is true (guarantees refs are populated)
-    if (initialized && sceneRef.current && webglSceneRef.current) {
-      const { cubeGroup, wireframe, faceActors, dispose } = createCubeStructure({
-        locale,
-        faceSize,
-        facePadding,
-        faceAlpha,
-        faceDepth,
-        cubeSize,
-        isPhone: isPhone || false,
-        lowPowerMode,
-      });
-
-      if (SHOW_CUBE) {
-        webglSceneRef.current.add(wireframe);
-        sceneRef.current.add(cubeGroup);
-      }
-
-      cubeRefs.current = { cubeGroup, wireframe, faceActors };
-      logEvent('scene.cube.created', { locale });
-
-      // Cleanup function to remove cube when locale changes or component unmounts
-      return () => {
-        if (SHOW_CUBE) {
-          webglSceneRef.current?.remove(wireframe);
-          sceneRef.current?.remove(cubeGroup);
-        }
-        dispose();
-        cubeRefs.current = null;
-      };
-    }
-  }, [initialized, locale, faceSize, facePadding, faceAlpha, faceDepth, cubeSize, isPhone, lowPowerMode, sceneRef, webglSceneRef]);
+  // 6. Cube Structure (Managed by Hook)
+  const cubeRefs = useCubeSystem({
+    scene: sceneRef.current,
+    webglScene: webglSceneRef.current,
+    locale,
+    createConfig: {
+      faceSize,
+      facePadding,
+      faceAlpha,
+      faceDepth,
+      cubeSize,
+      isPhone: isPhone || false,
+      lowPowerMode,
+    },
+    isGameMode,
+    showCube: SHOW_CUBE,
+    initialized: initialized && !!sceneRef.current && !!webglSceneRef.current,
+  });
 
   // --- Main Animation Loop & Resize ---
   useEffect(() => {
@@ -299,15 +272,11 @@ export function Scene3D({
       // 1. Update Physics / Camera Controls
       updatePhysics(lowPowerMode, deltaSeconds);
 
-      // 2. Float Animation & Game Mode Cube Visibility
+      // 2. Float Animation (Visibility is handled by useCubeSystem hook)
       const floatY = Math.sin(currentTime * 0.00035) * floatAmplitude;
       if (cubeRefs.current) {
-        // Hide cube in Game Mode, show in Normal Mode
-        const shouldShow = !isGameMode && SHOW_CUBE;
-        cubeRefs.current.cubeGroup.visible = shouldShow;
-        cubeRefs.current.wireframe.visible = shouldShow;
-
-        if (shouldShow) {
+        // Only update position if visible (optimization)
+        if (cubeRefs.current.cubeGroup.visible) {
           cubeRefs.current.cubeGroup.position.y = floatY;
           cubeRefs.current.wireframe.position.y = floatY;
         }
