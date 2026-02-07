@@ -73,8 +73,7 @@ export function Scene3D({
   const startAnimation = () => startAnimationRef.current?.();
   const gameYawRef = useRef(0);
   const gamePitchRef = useRef(0);
-  const gamePositionRef = useRef(new Vector3());
-
+  const gamePositionRef = useRef(new Vector3()); // Position for game mode
   const gameInitializedRef = useRef(false);
 
   // Store latest input in refs to avoid stale closures in animation loop
@@ -197,18 +196,15 @@ export function Scene3D({
   } | null>(null);
 
   // --- Cube Lifecycle ---
-  const hasCreatedCube = useRef(false);
+  // Removed hasCreatedCube ref to allow recreation on prop change (locale)
 
   useEffect(() => {
     // Reset if initialization is lost (e.g. StrictMode or Context Loss)
-    if (!initialized) {
-      hasCreatedCube.current = false;
-      return;
-    }
+    if (!initialized) return;
 
     // Only create cube when initialized is true (guarantees refs are populated)
-    if (initialized && !hasCreatedCube.current && sceneRef.current && webglSceneRef.current) {
-      const { cubeGroup, wireframe, faceActors } = createCubeStructure({
+    if (initialized && sceneRef.current && webglSceneRef.current) {
+      const { cubeGroup, wireframe, faceActors, dispose } = createCubeStructure({
         locale,
         faceSize,
         facePadding,
@@ -225,8 +221,17 @@ export function Scene3D({
       }
 
       cubeRefs.current = { cubeGroup, wireframe, faceActors };
-      hasCreatedCube.current = true;
       logEvent('scene.cube.created', { locale });
+
+      // Cleanup function to remove cube when locale changes or component unmounts
+      return () => {
+        if (SHOW_CUBE) {
+          webglSceneRef.current?.remove(wireframe);
+          sceneRef.current?.remove(cubeGroup);
+        }
+        dispose();
+        cubeRefs.current = null;
+      };
     }
   }, [initialized, locale, faceSize, facePadding, faceAlpha, faceDepth, cubeSize, isPhone, lowPowerMode, sceneRef, webglSceneRef]);
 
@@ -297,10 +302,15 @@ export function Scene3D({
       // 2. Float Animation & Game Mode Cube Visibility
       const floatY = Math.sin(currentTime * 0.00035) * floatAmplitude;
       if (cubeRefs.current) {
-        cubeRefs.current.cubeGroup.visible = true;
-        cubeRefs.current.wireframe.visible = true;
-        cubeRefs.current.cubeGroup.position.y = floatY;
-        cubeRefs.current.wireframe.position.y = floatY;
+        // Hide cube in Game Mode, show in Normal Mode
+        const shouldShow = !isGameMode && SHOW_CUBE;
+        cubeRefs.current.cubeGroup.visible = shouldShow;
+        cubeRefs.current.wireframe.visible = shouldShow;
+
+        if (shouldShow) {
+          cubeRefs.current.cubeGroup.position.y = floatY;
+          cubeRefs.current.wireframe.position.y = floatY;
+        }
       }
 
       // 2b. Joystick-based free flight in game mode (super fast - reach sun in ~10 sec)
@@ -309,7 +319,8 @@ export function Scene3D({
       if (isGameMode && cameraRef.current) {
         const cam = cameraRef.current;
         const moveSpeed = lowPowerMode ? 55 : 75;
-        const lookSpeed = lowPowerMode ? 2.8 : 4.6;
+        // Increased look speed by ~50% to improve responsiveness
+        const lookSpeed = lowPowerMode ? 4.2 : 7.0;
         const jx = joystickInputRef.current.x;
         const jy = joystickInputRef.current.y;
         const lx = lookJoystickInputRef.current.x;
