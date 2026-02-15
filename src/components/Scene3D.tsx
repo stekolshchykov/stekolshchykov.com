@@ -2,6 +2,9 @@ import { useRef, useEffect } from 'react';
 import type { Locale } from '../content/stekolschikovContent';
 import { logEvent, logRuntime } from '../observability/logger';
 
+// Wasm
+import initWasm, { StarSimulation, CubeSimulation } from '../webgpu-black-hole/wasm/pkg/dust_wasm.js';
+
 // Hooks
 import { useSceneInit } from './scene/hooks/useSceneInit';
 import { useStarField } from './scene/hooks/useStarField';
@@ -25,6 +28,7 @@ interface Scene3DProps {
   lookJoystickInput?: { x: number; y: number };
   withSingularityBackground?: boolean;
   navigationTrigger?: number;
+  activeFaceId: import('../navigation').FaceId;
   onActiveFaceChange?: (faceId: import('../navigation').FaceId, navMap: Record<import('../navigation').Direction, import('../navigation').FaceId>) => void;
 }
 
@@ -37,6 +41,7 @@ export function Scene3D({
   lookJoystickInput = { x: 0, y: 0 },
   withSingularityBackground = false,
   navigationTrigger = 0,
+  activeFaceId,
   onActiveFaceChange,
 }: Scene3DProps) {
   // --- Constants & Config ---
@@ -49,11 +54,16 @@ export function Scene3D({
   const wasTransitioningRef = useRef(false);
   const onReadyCalledRef = useRef(false);
   const onActiveFaceChangeRef = useRef(onActiveFaceChange);
+  const activeFaceIdPropRef = useRef(activeFaceId);
   const onReadyRef = useRef(onReady);
 
   useEffect(() => {
     onActiveFaceChangeRef.current = onActiveFaceChange;
   }, [onActiveFaceChange]);
+
+  useEffect(() => {
+    activeFaceIdPropRef.current = activeFaceId;
+  }, [activeFaceId]);
 
   useEffect(() => {
     onReadyRef.current = onReady;
@@ -138,6 +148,67 @@ export function Scene3D({
     lowPowerMode,
     enabled: !withSingularityBackground,
   });
+
+  // --- Wasm Simulations ---
+  const wasmInitializedRef = useRef(false);
+  const wasmMemoryRef = useRef<WebAssembly.Memory | null>(null);
+  const starSimRef = useRef<StarSimulation | null>(null);
+  const cubeSimRef = useRef<CubeSimulation | null>(null);
+
+  useEffect(() => {
+    initWasm().then(wasm => {
+      wasmMemoryRef.current = wasm.memory;
+      wasmInitializedRef.current = true;
+    }).catch(err => {
+      logRuntime('error', 'scene.wasm', 'Failed to init Wasm', err);
+    });
+  }, []);
+
+  // Initialize Simulations when dependencies are ready
+  const cubeRefs = useCubeSystem({
+    scene: sceneRef.current,
+    webglScene: webglSceneRef.current,
+    locale,
+    createConfig: {
+      faceSize,
+      facePadding,
+      faceAlpha,
+      faceDepth,
+      cubeSize,
+      isPhone,
+      lowPowerMode,
+    },
+    isGameMode,
+    showCube: SHOW_CUBE,
+    initialized,
+  });
+
+  useEffect(() => {
+    if (wasmInitializedRef.current && initialized && !starSimRef.current) {
+      const starCount = Math.floor((lowPowerMode ? 1700 : 4200) * 1.0);
+      const starRange = lowPowerMode ? 2000 : 2900;
+      starSimRef.current = new StarSimulation(starCount, starRange);
+    }
+  }, [initialized, lowPowerMode]);
+
+  useEffect(() => {
+    if (wasmInitializedRef.current && cubeRefs.current && !cubeSimRef.current) {
+      const actors = cubeRefs.current.faceActors;
+      const normals = new Float32Array(actors.length * 3);
+      const basePos = new Float32Array(actors.length * 3);
+      const baseRot = new Float32Array(actors.length * 3);
+      const phases = new Float32Array(actors.length);
+
+      actors.forEach((actor, i) => {
+        normals.set(actor.normal, i * 3);
+        basePos.set(actor.basePosition, i * 3);
+        baseRot.set(actor.baseRotation, i * 3);
+        phases[i] = actor.phase;
+      });
+
+      cubeSimRef.current = new CubeSimulation(normals, basePos, baseRot, phases);
+    }
+  }, [cubeRefs]);
 
   const { qualityTier, qualityPreset, reportFrame } = useAdaptiveQuality({
     enabled: true,
@@ -250,25 +321,6 @@ export function Scene3D({
     lockCamera: lockCameraToActiveFace,
   });
 
-  // 6. Cube Structure (Managed by Hook)
-  const cubeRefs = useCubeSystem({
-    scene: sceneRef.current,
-    webglScene: webglSceneRef.current,
-    locale,
-    createConfig: {
-      faceSize,
-      facePadding,
-      faceAlpha,
-      faceDepth,
-      cubeSize,
-      isPhone: isPhone || false,
-      lowPowerMode,
-    },
-    isGameMode,
-    showCube: SHOW_CUBE,
-    initialized: initialized && !!sceneRef.current && !!webglSceneRef.current,
-  });
-
   // --- Main Animation Loop & Resize ---
   useEffect(() => {
     if (!initialized) return;
@@ -347,6 +399,8 @@ export function Scene3D({
 
       const camera = cameraRef.current; // Primary declaration at the top of the loop
 
+      let nextActiveFaceIndex = activeFaceIndexRef.current;
+
       // 1. Update Physics / Camera Controls
       if (!gameMode) {
         updatePhysics(lowPowerMode, deltaSeconds);
@@ -377,8 +431,8 @@ export function Scene3D({
       // 2b. Joystick-based free flight in game mode (super fast - reach sun in ~10 sec)
       let gameCameraOverride: Vector3 | null = null;
       let gameLookAtOverride: Vector3 | null = null;
-      if (gameMode && cameraRef.current) {
-        const cam = cameraRef.current;
+      if (gameMode && camera) {
+        const cam = camera;
         const moveSpeed = lowPowerMode ? 55 : 75;
         // Increased look speed by ~50% to improve responsiveness
         const lookSpeed = lowPowerMode ? 4.2 : 7.0;
@@ -425,8 +479,6 @@ export function Scene3D({
       let flightEnvelope = 0;
       let flightSwirl = 0;
       let burst = 0;
-
-      // Duplicate camera declaration removed here to fix scope error
 
       if (camera) {
         if (gameMode && gameCameraOverride && gameLookAtOverride) {
@@ -496,53 +548,148 @@ export function Scene3D({
           previousCameraPosition.copy(camera.position);
           const rotationSpeed = Math.hypot(velocityRef.current.x, velocityRef.current.y) / Math.max(deltaSeconds, 1 / 240);
           const rotationBoost = rotationSpeed * (lowPowerMode ? 1600 : 2600);
-          if (!withSingularityBackground) {
+
+          if (!withSingularityBackground && starSimRef.current && wasmMemoryRef.current) {
+            starSimRef.current.update(deltaSeconds, cameraSpeed, rotationBoost);
+            // Sync to Three.js attribute using the new Wasm-aware update
+            updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost, starSimRef.current, wasmMemoryRef.current);
+          } else if (!withSingularityBackground) {
             updateStarField(deltaSeconds, camera.position, flightEnvelope, cameraSpeed + rotationBoost);
           }
         }
       }
 
       // 6. Update Cube Jitter/Wobble
-      if (cubeRefs.current) {
+      if (cubeRefs.current && camera && camera.position) {
         const { cubeGroup, wireframe, faceActors } = cubeRefs.current;
-        let strongestFacing = -1;
-        let strongestFaceIndex = -1;
 
-        // Tilt from Flight
-        const cubeTiltX = Math.sin(flightSwirl * 1.2) * 0.014 * flightEnvelope * qualityPreset.motionScale;
-        const cubeTiltY = Math.cos(flightSwirl * 0.95) * 0.022 * flightEnvelope * qualityPreset.motionScale;
-        const cubeTiltZ = Math.sin(flightSwirl * 1.55) * 0.012 * flightEnvelope * qualityPreset.motionScale;
+        if (cubeSimRef.current && wasmMemoryRef.current) {
+          // Sync state to Wasm (input only)
+          cubeSimRef.current.rotation_x = currentRotationRef.current.x;
+          cubeSimRef.current.rotation_y = currentRotationRef.current.y;
+          cubeSimRef.current.flight_envelope = flightEnvelope;
+          cubeSimRef.current.flight_swirl = flightSwirl;
+          cubeSimRef.current.burst = burst;
 
-        cubeGroup.rotation.x = currentRotationRef.current.x + cubeTiltX;
-        cubeGroup.rotation.y = currentRotationRef.current.y + cubeTiltY;
-        cubeGroup.rotation.z = cubeTiltZ;
+          cubeSimRef.current.update(
+            deltaSeconds,
+            isDraggingRef.current,
+            targetRotationRef.current.x,
+            targetRotationRef.current.y,
+            isTransitioningRef.current,
+            qualityPreset.motionScale,
+            cubeSize,
+            new Float32Array([camera.position.x, camera.position.y, camera.position.z]),
+            new Float32Array([cubeGroup.position.x, cubeGroup.position.y, cubeGroup.position.z]),
+            rotationBurstRef.current.seed
+          );
 
-        wireframe.rotation.x = currentRotationRef.current.x + cubeTiltX * 1.06;
-        wireframe.rotation.y = currentRotationRef.current.y + cubeTiltY * 1.06;
-        wireframe.rotation.z = cubeTiltZ * 1.1;
+          // Apply to Three.js using base rotation from JS
+          const tiltX = Math.sin(flightSwirl * 1.2) * 0.014 * flightEnvelope * qualityPreset.motionScale;
+          const tiltY = Math.cos(flightSwirl * 0.95) * 0.022 * flightEnvelope * qualityPreset.motionScale;
+          const tiltZ = Math.sin(flightSwirl * 1.55) * 0.012 * flightEnvelope * qualityPreset.motionScale;
 
-        // Burst Effect (Exploding Faces)
-        const explodeDistance = cubeSize * (lowPowerMode ? 0.045 : 0.09) * burst * qualityPreset.motionScale;
-        const wobbleAmount = (lowPowerMode ? 0.0026 : 0.0054) * burst * qualityPreset.motionScale;
-        if (camera) {
+          cubeGroup.rotation.set(currentRotationRef.current.x + tiltX, currentRotationRef.current.y + tiltY, tiltZ);
+          wireframe.rotation.set(currentRotationRef.current.x + tiltX * 1.06, currentRotationRef.current.y + tiltY * 1.06, tiltZ * 1.1);
+
+          // Apply face transforms from Wasm buffer
+          const matrixPtr = cubeSimRef.current.get_face_matrices_ptr();
+          const view = new Float32Array(wasmMemoryRef.current.buffer, matrixPtr, 6 * 16);
+
           cubeGroup.getWorldPosition(cubeWorldPos);
           cameraDirection.copy(camera.position).sub(cubeWorldPos).normalize();
-        }
 
-        faceActors.forEach((face: FaceActor, faceIndex: number) => {
-          const wave = Math.sin(currentTime * 0.009 + face.phase + rotationBurstRef.current.seed) * cubeSize * 0.007 * burst;
-          face.object.position.set(
-            face.basePosition[0] + face.normal[0] * (explodeDistance + wave),
-            face.basePosition[1] + face.normal[1] * (explodeDistance + wave),
-            face.basePosition[2] + face.normal[2] * (explodeDistance + wave)
-          );
-          face.object.rotation.set(
-            face.baseRotation[0] + Math.sin(currentTime * 0.011 + face.phase) * wobbleAmount,
-            face.baseRotation[1] + Math.cos(currentTime * 0.01 + face.phase) * wobbleAmount,
-            face.baseRotation[2] + Math.sin(currentTime * 0.012 + face.phase) * wobbleAmount * 0.65
-          );
+          let strongestFacing = -1;
+          let strongestFaceIndex = -1;
 
-          if (camera) {
+          faceActors.forEach((face, i) => {
+            const fb = i * 16;
+            const px = view[fb + 0];
+            const py = view[fb + 1];
+            const pz = view[fb + 2];
+            const rx = view[fb + 3];
+            const ry = view[fb + 4];
+            const rz = view[fb + 5];
+
+            face.object.position.set(px, py, pz);
+            face.object.rotation.set(rx, ry, rz);
+
+            // Opacity remains in JS for now as it's cheap (1 dot product per face)
+            // unless we want to move it too.
+            faceOutward.set(face.normal[0], face.normal[1], face.normal[2])
+              .applyQuaternion(cubeGroup.quaternion).normalize();
+            const facing = Math.max(0, faceOutward.dot(cameraDirection));
+            if (facing > strongestFacing) {
+              strongestFacing = facing;
+              strongestFaceIndex = i;
+            }
+            const emphasis = Math.pow(facing, 1.6);
+            const opacity = inactiveFaceOpacity + (activeFaceOpacity - inactiveFaceOpacity) * emphasis;
+            face.object.element.style.opacity = opacity.toFixed(3);
+          });
+
+          // Neighbor detection still uses the JS loop for now.
+          const engageThreshold = lowPowerMode ? 0.62 : 0.56;
+          const releaseThreshold = lowPowerMode ? 0.44 : 0.4;
+
+          if (strongestFaceIndex === -1) {
+            nextActiveFaceIndex = -1;
+          } else if (activeFaceIndexRef.current === -1) {
+            nextActiveFaceIndex = strongestFacing >= engageThreshold ? strongestFaceIndex : -1;
+          } else if (strongestFacing < releaseThreshold) {
+            nextActiveFaceIndex = -1;
+          } else {
+            nextActiveFaceIndex = strongestFaceIndex;
+          }
+
+          if (nextActiveFaceIndex !== activeFaceIndexRef.current) {
+            if (activeFaceIndexRef.current >= 0) {
+              faceActors[activeFaceIndexRef.current]?.object.element.classList.remove('cube-face-shell--active');
+            }
+            if (nextActiveFaceIndex >= 0) {
+              const activeFaceElement = faceActors[nextActiveFaceIndex]?.object.element;
+              if (activeFaceElement) {
+                activeFaceElement.classList.add('cube-face-shell--active');
+              }
+            }
+            activeFaceIndexRef.current = nextActiveFaceIndex;
+          }
+        } else {
+          // Fallback to legacy JS loop loop
+          let strongestFacing = -1;
+          let strongestFaceIndex = -1;
+
+          const cubeTiltX = Math.sin(flightSwirl * 1.2) * 0.014 * flightEnvelope * qualityPreset.motionScale;
+          const cubeTiltY = Math.cos(flightSwirl * 0.95) * 0.022 * flightEnvelope * qualityPreset.motionScale;
+          const cubeTiltZ = Math.sin(flightSwirl * 1.55) * 0.012 * flightEnvelope * qualityPreset.motionScale;
+
+          cubeGroup.rotation.x = currentRotationRef.current.x + cubeTiltX;
+          cubeGroup.rotation.y = currentRotationRef.current.y + cubeTiltY;
+          cubeGroup.rotation.z = cubeTiltZ;
+
+          wireframe.rotation.x = currentRotationRef.current.x + cubeTiltX * 1.06;
+          wireframe.rotation.y = currentRotationRef.current.y + cubeTiltY * 1.06;
+          wireframe.rotation.z = cubeTiltZ * 1.1;
+
+          const explodeDistance = cubeSize * (lowPowerMode ? 0.045 : 0.09) * burst * qualityPreset.motionScale;
+          const wobbleAmount = (lowPowerMode ? 0.0026 : 0.0054) * burst * qualityPreset.motionScale;
+
+          cubeGroup.getWorldPosition(cubeWorldPos);
+          cameraDirection.copy(camera.position).sub(cubeWorldPos).normalize();
+
+          faceActors.forEach((face: FaceActor, faceIndex: number) => {
+            const wave = Math.sin(currentTime * 0.009 + face.phase + rotationBurstRef.current.seed) * cubeSize * 0.007 * burst;
+            face.object.position.set(
+              face.basePosition[0] + face.normal[0] * (explodeDistance + wave),
+              face.basePosition[1] + face.normal[1] * (explodeDistance + wave),
+              face.basePosition[2] + face.normal[2] * (explodeDistance + wave)
+            );
+            face.object.rotation.set(
+              face.baseRotation[0] + Math.sin(currentTime * 0.011 + face.phase) * wobbleAmount,
+              face.baseRotation[1] + Math.cos(currentTime * 0.01 + face.phase) * wobbleAmount,
+              face.baseRotation[2] + Math.sin(currentTime * 0.012 + face.phase) * wobbleAmount * 0.65
+            );
+
             faceOutward
               .set(face.normal[0], face.normal[1], face.normal[2])
               .applyQuaternion(cubeGroup.quaternion)
@@ -555,45 +702,36 @@ export function Scene3D({
             const emphasis = Math.pow(facing, 1.6);
             const opacity = inactiveFaceOpacity + (activeFaceOpacity - inactiveFaceOpacity) * emphasis;
             face.object.element.style.opacity = opacity.toFixed(3);
-          }
-        });
+          });
 
-        const engageThreshold = lowPowerMode ? 0.62 : 0.56;
-        const releaseThreshold = lowPowerMode ? 0.44 : 0.4;
-        let nextActiveFaceIndex = activeFaceIndexRef.current;
+          const engageThreshold = lowPowerMode ? 0.62 : 0.56;
+          const releaseThreshold = lowPowerMode ? 0.44 : 0.4;
 
-        if (strongestFaceIndex === -1) {
-          nextActiveFaceIndex = -1;
-        } else if (activeFaceIndexRef.current === -1) {
-          nextActiveFaceIndex = strongestFacing >= engageThreshold ? strongestFaceIndex : -1;
-        } else if (strongestFacing < releaseThreshold) {
-          nextActiveFaceIndex = -1;
-        } else {
-          nextActiveFaceIndex = strongestFaceIndex;
-        }
-
-        if (nextActiveFaceIndex !== activeFaceIndexRef.current) {
-          if (activeFaceIndexRef.current >= 0) {
-            faceActors[activeFaceIndexRef.current]?.object.element.classList.remove('cube-face-shell--active');
+          if (strongestFaceIndex === -1) {
+            nextActiveFaceIndex = -1;
+          } else if (activeFaceIndexRef.current === -1) {
+            nextActiveFaceIndex = strongestFacing >= engageThreshold ? strongestFaceIndex : -1;
+          } else if (strongestFacing < releaseThreshold) {
+            nextActiveFaceIndex = -1;
+          } else {
+            nextActiveFaceIndex = strongestFaceIndex;
           }
 
-          if (nextActiveFaceIndex >= 0) {
-            const activeFaceElement = faceActors[nextActiveFaceIndex]?.object.element;
-            if (activeFaceElement) {
-              activeFaceElement.classList.add('cube-face-shell--active');
+          if (nextActiveFaceIndex !== activeFaceIndexRef.current) {
+            if (activeFaceIndexRef.current >= 0) {
+              faceActors[activeFaceIndexRef.current]?.object.element.classList.remove('cube-face-shell--active');
             }
+            if (nextActiveFaceIndex >= 0) {
+              const activeFaceElement = faceActors[nextActiveFaceIndex]?.object.element;
+              if (activeFaceElement) {
+                activeFaceElement.classList.add('cube-face-shell--active');
+              }
+            }
+            activeFaceIndexRef.current = nextActiveFaceIndex;
           }
-
-          activeFaceIndexRef.current = nextActiveFaceIndex;
         }
 
-        // Calculate neighbors for the current orientation
-        // This ensures the HUD update is responsive during drag and correct after transitions
-        const isMovingInertia = Math.hypot(velocityRef.current.x, velocityRef.current.y) > 0.001;
-        const isUserDriven = isDraggingRef.current || (isMovingInertia && !isTransitioningRef.current);
-        const transitionJustFinished = wasTransitioningRef.current && !isTransitioningRef.current;
-
-        if ((isUserDriven || transitionJustFinished) && nextActiveFaceIndex !== -1) {
+        if (nextActiveFaceIndex !== -1) {
           const currentFaceId = FACE_ID_MAP[nextActiveFaceIndex];
           const navMap: Record<import('../navigation').Direction, import('../navigation').FaceId> = {
             up: currentFaceId,
@@ -629,7 +767,15 @@ export function Scene3D({
 
           const faceId = FACE_ID_MAP[nextActiveFaceIndex];
           if (faceId) {
-            onActiveFaceChangeRef.current?.(faceId, navMap);
+            // Only report face ID changes if NOT in a programmed transition,
+            // or if the reported face matches what CubeApp already thinks is active.
+            // This prevents the "start and reset" loop during navigation.
+            if (!isTransitioningRef.current || faceId === activeFaceIdPropRef.current) {
+              onActiveFaceChangeRef.current?.(faceId, navMap);
+            } else {
+              // Always update navMap so labels remain correct, but don't flip activeFace back.
+              onActiveFaceChangeRef.current?.(activeFaceIdPropRef.current, navMap);
+            }
           }
         }
 

@@ -322,6 +322,7 @@ export default function CubeApp() {
           <SingularityBackground isGameMode={isGameMode} joystickInput={joystickInput} />
           <Suspense fallback={<div className="scene-fallback" />}>
             <Scene3D
+              activeFaceId={activeFace}
               targetRotation={FACE_ROTATIONS[activeFace]}
               locale={locale}
               onReady={handleSceneReady}

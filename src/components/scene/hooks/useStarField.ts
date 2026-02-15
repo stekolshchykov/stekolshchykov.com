@@ -313,7 +313,9 @@ export function useStarField({ sceneRef, lowPowerMode, initialized, enabled = tr
     deltaTime: number,
     cameraPosition: { x: number; y: number; z: number },
     flightEnvelope = 0,
-    cameraSpeed = 0
+    cameraSpeed = 0,
+    starSim?: any,
+    wasmMemory?: WebAssembly.Memory | null
   ) => {
     if (!enabled) return;
     if (!deepStarsRef.current || !particleGroupRef.current || !particleInfoRef.current) return;
@@ -352,26 +354,33 @@ export function useStarField({ sceneRef, lowPowerMode, initialized, enabled = tr
 
     const geometry = points.geometry;
     const positions = geometry.attributes.position.array as Float32Array;
-    const forwardDrift = (lowPowerMode ? 1.2 : 1.95) + flightEnvelope * (lowPowerMode ? 2 : 3.9) + speedBoost * 3.35;
 
-    for (let i = 0; i < count; i += 1) {
-      const i3 = i * 3;
-      positions[i3] += velocities[i3] * (1 + speedBoost * 0.5) * frameScale;
-      positions[i3 + 1] += velocities[i3 + 1] * (1 + speedBoost * 0.4) * frameScale;
-      positions[i3 + 2] += (velocities[i3 + 2] + forwardDrift) * frameScale;
+    if (starSim && wasmMemory) {
+      const ptr = starSim.get_positions_ptr();
+      const view = new Float32Array(wasmMemory.buffer, ptr, count * 3);
+      positions.set(view);
+    } else {
+      const forwardDrift = (lowPowerMode ? 1.2 : 1.95) + flightEnvelope * (lowPowerMode ? 2 : 3.9) + speedBoost * 3.35;
 
-      if (!Number.isFinite(positions[i3]) || !Number.isFinite(positions[i3 + 1]) || !Number.isFinite(positions[i3 + 2])) {
-        positions[i3] = (Math.random() - 0.5) * range * 2;
-        positions[i3 + 1] = (Math.random() - 0.5) * range * 2;
-        positions[i3 + 2] = (Math.random() - 0.5) * range * 2;
+      for (let i = 0; i < count; i += 1) {
+        const i3 = i * 3;
+        positions[i3] += velocities[i3] * (1 + speedBoost * 0.5) * frameScale;
+        positions[i3 + 1] += velocities[i3 + 1] * (1 + speedBoost * 0.4) * frameScale;
+        positions[i3 + 2] += (velocities[i3 + 2] + forwardDrift) * frameScale;
+
+        if (!Number.isFinite(positions[i3]) || !Number.isFinite(positions[i3 + 1]) || !Number.isFinite(positions[i3 + 2])) {
+          positions[i3] = (Math.random() - 0.5) * range * 2;
+          positions[i3 + 1] = (Math.random() - 0.5) * range * 2;
+          positions[i3 + 2] = (Math.random() - 0.5) * range * 2;
+        }
+
+        if (positions[i3] > range) positions[i3] -= range * 2;
+        if (positions[i3] < -range) positions[i3] += range * 2;
+        if (positions[i3 + 1] > range) positions[i3 + 1] -= range * 2;
+        if (positions[i3 + 1] < -range) positions[i3 + 1] += range * 2;
+        if (positions[i3 + 2] > range) positions[i3 + 2] -= range * 2;
+        if (positions[i3 + 2] < -range) positions[i3 + 2] += range * 2;
       }
-
-      if (positions[i3] > range) positions[i3] -= range * 2;
-      if (positions[i3] < -range) positions[i3] += range * 2;
-      if (positions[i3 + 1] > range) positions[i3 + 1] -= range * 2;
-      if (positions[i3 + 1] < -range) positions[i3 + 1] += range * 2;
-      if (positions[i3 + 2] > range) positions[i3 + 2] -= range * 2;
-      if (positions[i3 + 2] < -range) positions[i3 + 2] += range * 2;
     }
     geometry.attributes.position.needsUpdate = true;
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import initWasm, { DustSimulation } from './wasm/pkg/dust_wasm.js';
 
 export type DustConfig = {
   enabled: boolean;
@@ -64,6 +65,10 @@ export class DustSystem {
   private readonly scratch: Scratch;
   private readonly dummy: THREE.Object3D;
 
+  private wasmSim: DustSimulation | null = null;
+  private wasmMemory: WebAssembly.Memory | null = null;
+  private wasmInitialized = false;
+
   constructor(
     scene: THREE.Scene,
     bhPosition: THREE.Vector3,
@@ -114,7 +119,17 @@ export class DustSystem {
     this.cameraDir.copy(cameraDir);
   }
 
-  init(): void {
+  async init(): Promise<void> {
+    if (!this.wasmInitialized) {
+      try {
+        const wasm = await initWasm();
+        this.wasmMemory = wasm.memory;
+        this.wasmInitialized = true;
+      } catch (err) {
+        console.error('Failed to initialize DustSystem Wasm:', err);
+      }
+    }
+
     const geometry = new THREE.IcosahedronGeometry(1, 0);
     const material = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -133,8 +148,30 @@ export class DustSystem {
     this.scene.add(this.mesh);
 
     this.particles = new Array(this.config.count);
-    for (let i = 0; i < this.config.count; i++) {
-      this.particles[i] = this.spawnParticle();
+    if (this.wasmInitialized) {
+      this.wasmSim = new DustSimulation(
+        this.config.count,
+        this.bhPosition.x, this.bhPosition.y, this.bhPosition.z,
+        this.diskNormal.x, this.diskNormal.y, this.diskNormal.z,
+        this.rotationSign,
+        this.horizonRadius,
+        this.diskOuterRadius,
+        this.config.gravityMultiplier,
+        this.config.innerRadius,
+        this.config.outerRadius,
+        this.config.minSpeed,
+        this.config.maxSpeed,
+        this.config.spawnJitter,
+        this.config.thickness,
+        this.config.sizeMin,
+        this.config.sizeMax,
+        this.config.density,
+        this.config.brightFactor
+      );
+    } else {
+      for (let i = 0; i < this.config.count; i++) {
+        this.particles[i] = this.spawnParticle();
+      }
     }
 
     this.flushInstanceMatrices();
@@ -147,6 +184,10 @@ export class DustSystem {
       (this.mesh.material as THREE.Material).dispose();
       this.mesh = null;
     }
+    if (this.wasmSim) {
+      this.wasmSim.free();
+      this.wasmSim = null;
+    }
     this.particles = [];
   }
 
@@ -155,26 +196,57 @@ export class DustSystem {
   }
 
   onResize() {
-    // placeholder in case we later size dust to viewport; currently no-op.
+    // placeholder in case we later size dust to viewport
   }
 
   update(dt: number): void {
     if (!this.config.enabled || !this.mesh) return;
 
-    const substeps = Math.max(1, Math.min(4, Math.ceil(dt / 0.01)));
-    const h = dt / substeps;
+    if (this.wasmSim && this.wasmMemory) {
+      this.wasmSim.update(
+        dt,
+        this.bhPosition.x, this.bhPosition.y, this.bhPosition.z,
+        this.diskNormal.x, this.diskNormal.y, this.diskNormal.z,
+        this.cameraDir.x, this.cameraDir.y, this.cameraDir.z,
+        this.rotationSign,
+        this.horizonRadius,
+        this.diskOuterRadius,
+        this.config.gravityMultiplier,
+        this.config.planeStiffness,
+        this.config.innerRadius,
+        this.config.outerRadius,
+        this.config.minSpeed,
+        this.config.maxSpeed,
+        this.config.drag,
+        this.config.orbitBlend,
+        this.config.swirl,
+        this.config.radialDamping,
+        this.config.thickness,
+        this.config.lensStrength,
+        this.config.brightFactor,
+        this.config.redshiftScale,
+        this.config.streakScale,
+        this.config.respawnInner,
+        this.config.spawnJitter,
+        this.config.sizeMin,
+        this.config.sizeMax,
+        this.config.density
+      );
+    } else {
+      const substeps = Math.max(1, Math.min(4, Math.ceil(dt / 0.01)));
+      const h = dt / substeps;
 
-    for (let s = 0; s < substeps; s++) {
-      for (let i = 0; i < this.particles.length; i++) {
-        const p = this.particles[i];
-        this.integrateParticle(p, h);
+      for (let s = 0; s < substeps; s++) {
+        for (let i = 0; i < this.particles.length; i++) {
+          this.integrateParticleJS(this.particles[i], h);
+        }
       }
     }
 
     this.flushInstanceMatrices();
   }
 
-  private integrateParticle(p: Particle, dt: number): void {
+  private integrateParticleJS(p: Particle, dt: number): void {
     const cfg = this.config;
     const { r, radial, tangent, perpV, tmp } = this.scratch;
 
@@ -182,19 +254,15 @@ export class DustSystem {
     const distSq = Math.max(1e-4, r.lengthSq());
     const dist = Math.sqrt(distSq);
 
-    // Gravitation with softening
     const G = 1.0 * cfg.gravityMultiplier;
-    const aGrav = G / (distSq * Math.sqrt(distSq)); // 1/r^3 factor
+    const aGrav = G / (distSq * Math.sqrt(distSq));
     r.multiplyScalar(aGrav * dt);
     p.vel.add(r);
 
-    // Keep in disk plane
     perpV.copy(p.vel).projectOnVector(this.diskNormal);
     p.vel.sub(perpV.multiplyScalar(cfg.planeStiffness * dt));
 
-    // Target orbital speed
     radial.subVectors(p.pos, this.bhPosition);
-    // Project radial into disk plane for bounds/orbit calculations.
     tmp.copy(radial).addScaledVector(this.diskNormal, -tmp.dot(this.diskNormal));
     const radialPlaneLen = tmp.length();
 
@@ -206,38 +274,30 @@ export class DustSystem {
       const vTarget = THREE.MathUtils.clamp(Math.sqrt(G * effectiveInner / radialPlaneLen), cfg.minSpeed, cfg.maxSpeed);
       const desiredVel = tmp.copy(tangent).multiplyScalar(vTarget);
 
-      // Drag toward target tangential velocity
       perpV.copy(desiredVel).sub(p.vel);
       const area = p.size * p.size;
       const aDrag = (cfg.drag * area / Math.max(p.mass, 1e-4));
       p.vel.addScaledVector(perpV, aDrag * dt);
 
-      // Blend velocity towards ideal orbit (helps keep ring coherence)
       const blend = THREE.MathUtils.clamp(cfg.orbitBlend * dt, 0, 0.25);
       p.vel.lerp(desiredVel, blend);
 
-      // Lens-like swirl: subtle precession to accentuate curvature
       const swirl = cfg.swirl * dt;
       p.vel.addScaledVector(tangent, swirl);
 
-      // Radial damping to avoid chaotic escape
-      // Use plane radial direction.
       const radialDir = this.scratch.tmp2.copy(radial).addScaledVector(this.diskNormal, -this.scratch.tmp2.dot(this.diskNormal));
       if (radialDir.lengthSq() > 1e-6) radialDir.normalize();
       const radialVel = p.vel.dot(radialDir);
       p.vel.addScaledVector(radialDir, -radialVel * cfg.radialDamping * dt);
     }
 
-    // Clamp overall speed to keep particles bound
     const speed = p.vel.length();
     if (speed > cfg.maxSpeed) {
       p.vel.multiplyScalar(cfg.maxSpeed / speed);
     }
 
-    // Integrate position
     p.pos.addScaledVector(p.vel, dt);
 
-    // Keep within disk thickness
     const height = p.pos.dot(this.diskNormal);
     const maxH = cfg.thickness * 0.5;
     if (Math.abs(height) > maxH) {
@@ -246,7 +306,6 @@ export class DustSystem {
       p.vel.addScaledVector(this.diskNormal, -height * cfg.planeStiffness * dt);
     }
 
-    // Immediate policing: never allow dust in/near the horizon or outside annulus.
     const planeRadialAfter = this.scratch.tmp2.copy(p.pos).sub(this.bhPosition).addScaledVector(this.diskNormal, -this.scratch.tmp2.dot(this.diskNormal));
     const planeLenAfter = planeRadialAfter.length();
     if (dist < this.horizonRadius * 1.05 || planeLenAfter < effectiveInner || planeLenAfter > effectiveOuter) {
@@ -264,15 +323,13 @@ export class DustSystem {
     const cfg = this.config;
     const normal = this.diskNormal;
 
-    // Random radial distance with stronger bias to inner edge
     const minR = Math.max(cfg.innerRadius, this.horizonRadius * 1.3);
     const maxR = Math.min(cfg.outerRadius, this.diskOuterRadius + 1.0);
     const rRange = Math.max(0.1, maxR - minR);
-    const t = Math.pow(Math.random(), 0.3); // bias to outer edge
+    const t = Math.pow(Math.random(), 0.3);
     const r = minR + rRange * t;
     const theta = Math.random() * Math.PI * 2;
 
-    // Build an orthonormal basis for the disk plane
     const u = new THREE.Vector3();
     if (Math.abs(normal.y) < 0.99) {
       u.set(0, 1, 0).cross(normal).normalize();
@@ -289,7 +346,6 @@ export class DustSystem {
     const thickness = THREE.MathUtils.clamp((Math.random() * 2 - 1) * cfg.thickness * 0.25, -cfg.thickness * 0.5, cfg.thickness * 0.5);
     const pos = new THREE.Vector3().copy(this.bhPosition).add(radial).addScaledVector(normal, thickness);
 
-    // Velocity: near-circular plus jitter
     const tangent = new THREE.Vector3().crossVectors(normal, radial).normalize().multiplyScalar(this.rotationSign >= 0 ? 1 : -1);
     const effectiveInner = Math.max(cfg.innerRadius, this.horizonRadius * 1.3);
     const vMag = THREE.MathUtils.clamp(Math.sqrt(cfg.gravityMultiplier * effectiveInner / r) * (0.9 + Math.random() * 0.15), cfg.minSpeed, cfg.maxSpeed);
@@ -299,7 +355,7 @@ export class DustSystem {
 
     const size = THREE.MathUtils.lerp(cfg.sizeMin, cfg.sizeMax, Math.pow(Math.random(), 2.0));
     const mass = cfg.density * size * size * size;
-    const hue = 0.05 + Math.random() * 0.1; // warm oranges
+    const hue = 0.05 + Math.random() * 0.1;
     const color = new THREE.Color().setHSL(hue, 0.65, 0.55 + Math.random() * 0.25).multiplyScalar(cfg.brightFactor);
 
     return { pos, vel, mass, size, baseSize: size, color };
@@ -307,64 +363,79 @@ export class DustSystem {
 
   private flushInstanceMatrices() {
     if (!this.mesh) return;
-    const dummy = this.dummy;
-    const colorAttr = this.mesh.instanceColor ?? new THREE.InstancedBufferAttribute(new Float32Array(this.config.count * 3), 3);
-    const colorArray = colorAttr.array as Float32Array;
 
-    const { xAxis, yAxis, zAxis, m4 } = this.scratch;
+    if (this.wasmSim && this.wasmMemory) {
+      const matrixPtr = this.wasmSim.get_matrices_ptr();
+      const colorPtr = this.wasmSim.get_colors_ptr();
 
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
-      const dist = p.pos.distanceTo(this.bhPosition);
-      const gravScale = THREE.MathUtils.clamp(1 + (this.config.respawnInner / Math.max(dist, 0.01)) * 0.25, 1, 2.2);
-      const lensScale = 1 + this.config.lensStrength * Math.pow(this.config.respawnInner / Math.max(dist, 0.01), 2.0);
-      const flicker = 0.92 + Math.random() * 0.16;
-      const scaleBase = p.baseSize * gravScale * lensScale * flicker;
-      const brightness = THREE.MathUtils.clamp(
-        this.config.brightFactor * gravScale * lensScale * flicker * (1 + this.config.redshiftScale * this.config.respawnInner / Math.max(dist, 0.01)),
-        0,
-        5
-      );
+      const matrixView = new Float32Array(this.wasmMemory.buffer, matrixPtr, this.config.count * 16);
+      const colorView = new Float32Array(this.wasmMemory.buffer, colorPtr, this.config.count * 3);
 
-      dummy.position.copy(p.pos);
+      this.mesh.instanceMatrix.array.set(matrixView);
+      this.mesh.instanceMatrix.needsUpdate = true;
 
-      // Build a camera-facing basis, with x along velocity.
-      xAxis.copy(p.vel);
-      const speed = xAxis.length();
-      if (speed < 1e-4) {
-        xAxis.copy(this.diskNormal);
-      } else {
-        xAxis.divideScalar(speed);
+      if (!this.mesh.instanceColor) {
+        this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.config.count * 3), 3);
       }
-
-      // z points out of the ribbon plane (perpendicular to velocity + view dir).
-      zAxis.crossVectors(xAxis, this.cameraDir);
-      if (zAxis.lengthSq() < 1e-6) {
-        zAxis.crossVectors(xAxis, this.diskNormal);
-      }
-      zAxis.normalize();
-
-      // y completes right-handed basis.
-      yAxis.crossVectors(zAxis, xAxis).normalize();
-
-      m4.makeBasis(xAxis, yAxis, zAxis);
-      dummy.quaternion.setFromRotationMatrix(m4);
-
-      const stretch = 1 + this.config.streakScale * (this.config.respawnInner / Math.max(dist, 0.01));
-      dummy.scale.set(scaleBase * stretch, scaleBase * 0.25, scaleBase * 0.6);
-      dummy.updateMatrix();
-      this.mesh.setMatrixAt(i, dummy.matrix);
-      colorArray[i * 3 + 0] = p.color.r * brightness;
-      colorArray[i * 3 + 1] = p.color.g * brightness;
-      colorArray[i * 3 + 2] = p.color.b * brightness;
-    }
-
-    if (!this.mesh.instanceColor) {
-      this.mesh.instanceColor = colorAttr;
-    } else {
+      this.mesh.instanceColor.array.set(colorView);
       this.mesh.instanceColor.needsUpdate = true;
-    }
+    } else {
+      const dummy = this.dummy;
+      const colorAttr = this.mesh.instanceColor ?? new THREE.InstancedBufferAttribute(new Float32Array(this.config.count * 3), 3);
+      const colorArray = colorAttr.array as Float32Array;
 
-    this.mesh.instanceMatrix.needsUpdate = true;
+      const { xAxis, yAxis, zAxis, m4 } = this.scratch;
+
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        const dist = p.pos.distanceTo(this.bhPosition);
+        const gravScale = THREE.MathUtils.clamp(1 + (this.config.respawnInner / Math.max(dist, 0.01)) * 0.25, 1, 2.2);
+        const lensScale = 1 + this.config.lensStrength * Math.pow(this.config.respawnInner / Math.max(dist, 0.01), 2.0);
+        const flicker = 0.92 + Math.random() * 0.16;
+        const scaleBase = p.baseSize * gravScale * lensScale * flicker;
+        const brightness = THREE.MathUtils.clamp(
+          this.config.brightFactor * gravScale * lensScale * flicker * (1 + this.config.redshiftScale * this.config.respawnInner / Math.max(dist, 0.01)),
+          0,
+          5
+        );
+
+        dummy.position.copy(p.pos);
+
+        xAxis.copy(p.vel);
+        const speed = xAxis.length();
+        if (speed < 1e-4) {
+          xAxis.copy(this.diskNormal);
+        } else {
+          xAxis.divideScalar(speed);
+        }
+
+        zAxis.crossVectors(xAxis, this.cameraDir);
+        if (zAxis.lengthSq() < 1e-6) {
+          zAxis.crossVectors(xAxis, this.diskNormal);
+        }
+        zAxis.normalize();
+
+        yAxis.crossVectors(zAxis, xAxis).normalize();
+
+        m4.makeBasis(xAxis, yAxis, zAxis);
+        dummy.quaternion.setFromRotationMatrix(m4);
+
+        const stretch = 1 + this.config.streakScale * (this.config.respawnInner / Math.max(dist, 0.01));
+        dummy.scale.set(scaleBase * stretch, scaleBase * 0.25, scaleBase * 0.6);
+        dummy.updateMatrix();
+        this.mesh.setMatrixAt(i, dummy.matrix);
+        colorArray[i * 3 + 0] = p.color.r * brightness;
+        colorArray[i * 3 + 1] = p.color.g * brightness;
+        colorArray[i * 3 + 2] = p.color.b * brightness;
+      }
+
+      if (!this.mesh.instanceColor) {
+        this.mesh.instanceColor = colorAttr;
+      } else {
+        this.mesh.instanceColor.needsUpdate = true;
+      }
+
+      this.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 }

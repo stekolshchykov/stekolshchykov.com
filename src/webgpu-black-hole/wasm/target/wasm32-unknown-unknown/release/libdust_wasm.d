@@ -1,0 +1,1 @@
+/Users/mk/Documents/Personal/Code/stekolshchykov.com/src/webgpu-black-hole/wasm/target/wasm32-unknown-unknown/release/libdust_wasm.rlib: /Users/mk/Documents/Personal/Code/stekolshchykov.com/src/webgpu-black-hole/wasm/src/lib.rs /Users/mk/Documents/Personal/Code/stekolshchykov.com/src/webgpu-black-hole/wasm/src/sims.rs
