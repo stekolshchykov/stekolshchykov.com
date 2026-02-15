@@ -9,7 +9,9 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5199',
+    // Use IPv4 explicitly; on some Linux CI runners `localhost` resolves to ::1 and
+    // Vite may bind to 127.0.0.1, causing intermittent connection failures.
+    baseURL: 'http://127.0.0.1:5199',
     trace: 'on-first-retry',
     headless: true,
   },
@@ -20,8 +22,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --port 5199',
-    url: 'http://localhost:5199',
+    command: 'npm run dev -- --host 127.0.0.1 --port 5199 --strictPort',
+    url: 'http://127.0.0.1:5199',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

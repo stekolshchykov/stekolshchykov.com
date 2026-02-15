@@ -338,6 +338,13 @@ export async function createSingularityScene(params: {
 
   const uniforms = createDefaultSingularityUniforms();
 
+  // Background mode (used behind the main cube UI) doesn't need the full debug fidelity.
+  // Lowering raymarch iterations helps a lot because the shader cost is mostly per-pixel.
+  const isBackgroundMode = !showDebugPanel && !showGizmo && !controlsEnabled;
+  if (isBackgroundMode) {
+    uniforms.iterations.value = 96;
+  }
+
   // ------------------------------------------------------------------
   // ASSETS (public, normalized names)
   // ------------------------------------------------------------------
@@ -470,7 +477,7 @@ export async function createSingularityScene(params: {
 
     // Background is expensive (raymarch + postprocessing). Cap total pixels to keep FPS stable
     // on high-DPR / large displays, while preserving quality for the full debug view.
-    const maxPixels = showDebugPanel || showGizmo || controlsEnabled ? 4_000_000 : 2_300_000;
+    const maxPixels = showDebugPanel || showGizmo || controlsEnabled ? 4_000_000 : 1_600_000;
     const deviceDpr = window.devicePixelRatio || 1;
     const dprByPixels = Math.sqrt(maxPixels / (w * h));
     const dpr = Math.max(0.5, Math.min(deviceDpr, 2, dprByPixels));
