@@ -1,0 +1,18 @@
+{
+  "name": "dust_wasm",
+  "type": "module",
+  "collaborators": [
+    "Antigravity"
+  ],
+  "version": "0.1.0",
+  "files": [
+    "dust_wasm_bg.wasm",
+    "dust_wasm.js",
+    "dust_wasm.d.ts"
+  ],
+  "main": "dust_wasm.js",
+  "types": "dust_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
