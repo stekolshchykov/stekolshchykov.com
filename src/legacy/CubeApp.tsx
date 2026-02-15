@@ -63,7 +63,11 @@ function getIsMobileViewport(): boolean {
 
 export default function CubeApp() {
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
-  const [activeFace, setActiveFace] = useState<FaceId>('welcome');
+  const [activeFace, setActiveFace] = useState<FaceId>(
+    (localStorage.getItem('stekolshchykov_active_face') as FaceId) || 'welcome'
+  );
+  const [dynamicNav, setDynamicNav] = useState<Record<Direction, FaceId>>(NAV_BY_FACE[activeFace]);
+  const [navigationTrigger, setNavigationTrigger] = useState(0);
   const [isMobile, setIsMobile] = useState<boolean>(() => getIsMobileViewport());
   const [pulseText, setPulseText] = useState<string>('');
   const [pulseKey, setPulseKey] = useState(0);
@@ -266,6 +270,7 @@ export default function CubeApp() {
       playRotationSound();
     }
     setActiveFace(faceId);
+    setNavigationTrigger((prev) => prev + 1);
     if (withPulse && !isMobile) {
       triggerPulse(faceLabels[faceId]);
     }
@@ -322,7 +327,14 @@ export default function CubeApp() {
               onReady={handleSceneReady}
               isGameMode={isGameMode}
               joystickInput={joystickInput}
+              navigationTrigger={navigationTrigger}
               withSingularityBackground
+              onActiveFaceChange={(faceId, navMap) => {
+                if (faceId !== activeFace) {
+                  setActiveFace(faceId);
+                }
+                setDynamicNav(navMap);
+              }}
             />
           </Suspense>
 
@@ -378,43 +390,43 @@ export default function CubeApp() {
                 <div className="arrow-cluster menu-roll-in">
                   <UIKeyButton
                     className="key-up"
-                    code={FACE_CODES[NAV_BY_FACE[activeFace].up]}
+                    code={FACE_CODES[dynamicNav.up]}
                     direction="up"
-                    label={faceLabels[NAV_BY_FACE[activeFace].up]}
+                    label={faceLabels[dynamicNav.up]}
                     pressed={pressedDirection === 'up'}
                     ariaKeyShortcuts="ArrowUp W"
-                    onClick={() => changeFace(NAV_BY_FACE[activeFace].up, true, { source: 'click', direction: 'up' })}
+                    onClick={() => changeFace(dynamicNav.up, true, { source: 'click', direction: 'up' })}
                   />
 
                   <div className="arrow-row">
                     <UIKeyButton
                       className="key-left"
-                      code={FACE_CODES[NAV_BY_FACE[activeFace].left]}
+                      code={FACE_CODES[dynamicNav.left]}
                       direction="left"
-                      label={faceLabels[NAV_BY_FACE[activeFace].left]}
+                      label={faceLabels[dynamicNav.left]}
                       pressed={pressedDirection === 'left'}
                       ariaKeyShortcuts="ArrowLeft A"
-                      onClick={() => changeFace(NAV_BY_FACE[activeFace].left, true, { source: 'click', direction: 'left' })}
+                      onClick={() => changeFace(dynamicNav.left, true, { source: 'click', direction: 'left' })}
                     />
 
                     <UIKeyButton
                       className="key-down"
-                      code={FACE_CODES[NAV_BY_FACE[activeFace].down]}
+                      code={FACE_CODES[dynamicNav.down]}
                       direction="down"
-                      label={faceLabels[NAV_BY_FACE[activeFace].down]}
+                      label={faceLabels[dynamicNav.down]}
                       pressed={pressedDirection === 'down'}
                       ariaKeyShortcuts="ArrowDown S"
-                      onClick={() => changeFace(NAV_BY_FACE[activeFace].down, true, { source: 'click', direction: 'down' })}
+                      onClick={() => changeFace(dynamicNav.down, true, { source: 'click', direction: 'down' })}
                     />
 
                     <UIKeyButton
                       className="key-right"
-                      code={FACE_CODES[NAV_BY_FACE[activeFace].right]}
+                      code={FACE_CODES[dynamicNav.right]}
                       direction="right"
-                      label={faceLabels[NAV_BY_FACE[activeFace].right]}
+                      label={faceLabels[dynamicNav.right]}
                       pressed={pressedDirection === 'right'}
                       ariaKeyShortcuts="ArrowRight D"
-                      onClick={() => changeFace(NAV_BY_FACE[activeFace].right, true, { source: 'click', direction: 'right' })}
+                      onClick={() => changeFace(dynamicNav.right, true, { source: 'click', direction: 'right' })}
                     />
                   </div>
                 </div>

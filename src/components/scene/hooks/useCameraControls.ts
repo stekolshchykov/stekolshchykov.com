@@ -22,6 +22,7 @@ export function useCameraControls({
     const inertiaRef = useRef({ x: 0, y: 0 });
     const userCameraDistanceRef = useRef(defaultCameraDistance);
     const isDraggingRef = useRef(false);
+    const isTransitioningRef = useRef(false);
     const previousMousePositionRef = useRef({ x: 0, y: 0 });
     const previousRotationRef = useRef({ x: 0, y: 0 });
     const lastTargetRef = useRef({ x: 0, y: 0 });
@@ -110,6 +111,7 @@ export function useCameraControls({
             transitionRef.current.elapsed = 0;
             lastTargetRef.current = { ...targetRotationRef.current };
             inertiaRef.current = { x: 0, y: 0 };
+            isTransitioningRef.current = false;
         } else {
             const target = targetRotationRef.current;
             const lastTarget = lastTargetRef.current;
@@ -169,6 +171,7 @@ export function useCameraControls({
                     currentRotationRef.current.y += dy * snap;
                 }
             }
+            isTransitioningRef.current = transitionRef.current.active;
         }
 
         currentRotationRef.current.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, currentRotationRef.current.x));
@@ -185,8 +188,10 @@ export function useCameraControls({
         currentRotationRef,
         targetRotationRef,
         velocityRef,
+        inertiaRef,
         userCameraDistanceRef,
         isDraggingRef,
+        isTransitioningRef,
         updatePhysics
     };
 }

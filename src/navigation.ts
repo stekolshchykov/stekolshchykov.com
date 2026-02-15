@@ -4,8 +4,8 @@ export type Direction = 'up' | 'down' | 'left' | 'right';
 export const FACE_ROTATIONS: Record<FaceId, { x: number; y: number }> = {
   welcome: { x: 0, y: 0 },
   skills: { x: 0, y: Math.PI },
-  about: { x: 0, y: Math.PI / 2 },
-  cooperation: { x: 0, y: -Math.PI / 2 },
+  about: { x: 0, y: -Math.PI / 2 },
+  cooperation: { x: 0, y: Math.PI / 2 },
   contacts: { x: Math.PI / 2, y: 0 },
   work: { x: -Math.PI / 2, y: 0 },
 };

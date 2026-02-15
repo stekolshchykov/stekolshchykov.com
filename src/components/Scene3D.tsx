@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react';
 import type { Locale } from '../content/stekolschikovContent';
-import { logEvent } from '../observability/logger';
+import { logEvent, logRuntime } from '../observability/logger';
 
 // Hooks
 import { useSceneInit } from './scene/hooks/useSceneInit';
@@ -24,6 +24,8 @@ interface Scene3DProps {
   joystickInput?: { x: number; y: number };
   lookJoystickInput?: { x: number; y: number };
   withSingularityBackground?: boolean;
+  navigationTrigger?: number;
+  onActiveFaceChange?: (faceId: import('../navigation').FaceId, navMap: Record<import('../navigation').Direction, import('../navigation').FaceId>) => void;
 }
 
 export function Scene3D({
@@ -34,6 +36,8 @@ export function Scene3D({
   joystickInput = { x: 0, y: 0 },
   lookJoystickInput = { x: 0, y: 0 },
   withSingularityBackground = false,
+  navigationTrigger = 0,
+  onActiveFaceChange,
 }: Scene3DProps) {
   // --- Constants & Config ---
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,6 +45,19 @@ export function Scene3D({
   const startAnimationRef = useRef<(() => void) | null>(null);
   const readyNotifiedRef = useRef(false);
   const isGameModeRef = useRef(isGameMode);
+  const activeFaceIndexRef = useRef(-1);
+  const wasTransitioningRef = useRef(false);
+  const onReadyCalledRef = useRef(false);
+  const onActiveFaceChangeRef = useRef(onActiveFaceChange);
+  const onReadyRef = useRef(onReady);
+
+  useEffect(() => {
+    onActiveFaceChangeRef.current = onActiveFaceChange;
+  }, [onActiveFaceChange]);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   const viewportWidth = window.innerWidth;
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -133,8 +150,10 @@ export function Scene3D({
     currentRotationRef,
     targetRotationRef,
     velocityRef,
+    inertiaRef,
     userCameraDistanceRef,
     isDraggingRef,
+    isTransitioningRef,
     updatePhysics
   } = useCameraControls({
     interactionTargetRef: containerRef,
@@ -199,10 +218,24 @@ export function Scene3D({
 
   // Sync Input Target
   useEffect(() => {
-    if (targetRotationRef.current !== targetRotation) {
+    // Only apply external target rotation if we are not dragging.
+    // This avoids snapping the cube back to face center while the user is still rotating.
+    if (!isDraggingRef.current && targetRotationRef.current !== targetRotation) {
       targetRotationRef.current = targetRotation;
     }
   }, [targetRotation, targetRotationRef]);
+
+  useEffect(() => {
+    if (navigationTrigger > 0) {
+      // Force the internal target to the canonical rotation for the current targetRotation prop
+      // This solves the "stuck" issue after manual dragging
+      targetRotationRef.current = targetRotation;
+      // Kill inertia immediately so the button click takes command
+      inertiaRef.current.x = 0;
+      inertiaRef.current.y = 0;
+      logRuntime('info', 'scene3d-nav', 'Forced navigation trigger applies', { targetRotation });
+    }
+  }, [navigationTrigger, targetRotation, inertiaRef]);
 
   // 5. Cinematic Camera (Logic)
   const { updateCameraFlight, rotationBurstRef, cameraFlightRef } = useCinematicCamera({
@@ -258,9 +291,21 @@ export function Scene3D({
     const previousCameraPosition = new Vector3();
     const smoothedCameraPosition = new Vector3();
     const smoothedLookAt = new Vector3();
+
+    // Vector pool for neighbor calculations
+    const worldNormal = new Vector3();
+    const cameraSpaceNormal = new Vector3();
+
     let hasSmoothedCamera = false;
     let hasPreviousCameraPosition = false;
-    let activeFaceIndex = -1;
+    const FACE_ID_MAP: import('../navigation').FaceId[] = [
+      'welcome',     // Index 0 (AboutFace is welcome page)
+      'skills',      // Index 1
+      'about',       // Index 2 (ProjectsFace is about page)
+      'cooperation', // Index 3 (ExperienceFace is cooperation)
+      'contacts',    // Index 4
+      'work',        // Index 5 (EducationFace is work/github)
+    ];
 
     const animate = (currentTime: number) => {
       animationId = 0;
@@ -515,11 +560,11 @@ export function Scene3D({
 
         const engageThreshold = lowPowerMode ? 0.62 : 0.56;
         const releaseThreshold = lowPowerMode ? 0.44 : 0.4;
-        let nextActiveFaceIndex = activeFaceIndex;
+        let nextActiveFaceIndex = activeFaceIndexRef.current;
 
         if (strongestFaceIndex === -1) {
           nextActiveFaceIndex = -1;
-        } else if (activeFaceIndex === -1) {
+        } else if (activeFaceIndexRef.current === -1) {
           nextActiveFaceIndex = strongestFacing >= engageThreshold ? strongestFaceIndex : -1;
         } else if (strongestFacing < releaseThreshold) {
           nextActiveFaceIndex = -1;
@@ -527,9 +572,9 @@ export function Scene3D({
           nextActiveFaceIndex = strongestFaceIndex;
         }
 
-        if (nextActiveFaceIndex !== activeFaceIndex) {
-          if (activeFaceIndex >= 0) {
-            faceActors[activeFaceIndex]?.object.element.classList.remove('cube-face-shell--active');
+        if (nextActiveFaceIndex !== activeFaceIndexRef.current) {
+          if (activeFaceIndexRef.current >= 0) {
+            faceActors[activeFaceIndexRef.current]?.object.element.classList.remove('cube-face-shell--active');
           }
 
           if (nextActiveFaceIndex >= 0) {
@@ -539,8 +584,56 @@ export function Scene3D({
             }
           }
 
-          activeFaceIndex = nextActiveFaceIndex;
+          activeFaceIndexRef.current = nextActiveFaceIndex;
         }
+
+        // Calculate neighbors for the current orientation
+        // This ensures the HUD update is responsive during drag and correct after transitions
+        const isMovingInertia = Math.hypot(velocityRef.current.x, velocityRef.current.y) > 0.001;
+        const isUserDriven = isDraggingRef.current || (isMovingInertia && !isTransitioningRef.current);
+        const transitionJustFinished = wasTransitioningRef.current && !isTransitioningRef.current;
+
+        if ((isUserDriven || transitionJustFinished) && nextActiveFaceIndex !== -1) {
+          const currentFaceId = FACE_ID_MAP[nextActiveFaceIndex];
+          const navMap: Record<import('../navigation').Direction, import('../navigation').FaceId> = {
+            up: currentFaceId,
+            down: currentFaceId,
+            left: currentFaceId,
+            right: currentFaceId
+          };
+
+          let bestUp = -1, bestDown = -1, bestLeft = -1, bestRight = -1;
+          let maxUp = 0.1, maxDown = 0.1, maxLeft = 0.1, maxRight = 0.1;
+
+          faceActors.forEach((f, idx) => {
+            if (idx === nextActiveFaceIndex) return;
+
+            worldNormal.set(f.normal[0], f.normal[1], f.normal[2])
+              .applyQuaternion(cubeGroup.quaternion);
+
+            if (camera) {
+              // transformDirection correctly applies ONLY rotation/orientation to the vector
+              cameraSpaceNormal.copy(worldNormal).transformDirection(camera.matrixWorldInverse);
+
+              if (cameraSpaceNormal.y > maxUp) { maxUp = cameraSpaceNormal.y; bestUp = idx; }
+              if (cameraSpaceNormal.y < -maxDown) { maxDown = -cameraSpaceNormal.y; bestDown = idx; }
+              if (cameraSpaceNormal.x < -maxLeft) { maxLeft = -cameraSpaceNormal.x; bestLeft = idx; }
+              if (cameraSpaceNormal.x > maxRight) { maxRight = cameraSpaceNormal.x; bestRight = idx; }
+            }
+          });
+
+          if (bestUp !== -1) navMap.up = FACE_ID_MAP[bestUp];
+          if (bestDown !== -1) navMap.down = FACE_ID_MAP[bestDown];
+          if (bestLeft !== -1) navMap.left = FACE_ID_MAP[bestLeft];
+          if (bestRight !== -1) navMap.right = FACE_ID_MAP[bestRight];
+
+          const faceId = FACE_ID_MAP[nextActiveFaceIndex];
+          if (faceId) {
+            onActiveFaceChangeRef.current?.(faceId, navMap);
+          }
+        }
+
+        wasTransitioningRef.current = !!isTransitioningRef.current;
 
         const wireScale = 1 + burst * 0.06;
         wireframe.scale.set(wireScale, wireScale, wireScale);
@@ -565,7 +658,7 @@ export function Scene3D({
 
       if (!readyNotifiedRef.current) {
         readyNotifiedRef.current = true;
-        onReady?.();
+        onReadyRef.current?.();
       }
 
       hasRenderedOnce = true;
