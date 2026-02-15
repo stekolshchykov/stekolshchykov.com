@@ -2,6 +2,9 @@ import * as THREE from 'three/webgpu';
 import {
   Fn,
   Loop,
+  If,
+  Break,
+  vec2,
   vec3,
   vec4,
   float,
@@ -21,6 +24,8 @@ import {
   modelWorldMatrix,
   faceDirection,
   time,
+  clamp,
+  pow,
 } from 'three/tsl';
 
 import {
@@ -99,10 +104,9 @@ export function createSingularityColorNode(
   textures: {
     noiseDeepTexture: THREE.Texture;
     starsTexture: THREE.Texture;
+    blackbodyTexture: THREE.DataTexture;
   }
 ): THREE.Node {
-  // Clean-room implementation that mirrors the *structure and math* of the reference project's BlackHole node.
-  // The goal here is visual parity, not "creative" changes.
   return Fn(() => {
     const _step = uniforms.stepSize;
     const noiseAmp = uniforms.noiseFactor;
@@ -137,6 +141,11 @@ export function createSingularityColorNode(
     const alphaAcc = float(0.0).toVar();
 
     Loop(iterCount, () => {
+      // Early out when we're fully opaque; avoids doing the remaining ray steps.
+      If(alphaAcc.greaterThan(0.995), () => {
+        Break();
+      });
+
       // Steering term toward center
       const rNorm = normalize(rayPos);
       const rLen = lengthSqrt(rayPos);
@@ -170,22 +179,13 @@ export function createSingularityColorNode(
       const noiseAmp3 = noiseDeep.xyz.mul(zBand);
       const noiseAmpLen = lengthSqrt(noiseAmp3);
 
-      // Pseudo normal via offset noise
-      const uvForNormal = uv.mul(1.002);
-      const noiseNormal = texture(textures.noiseDeepTexture, uvForNormal).xyz.mul(zBand);
-      const noiseNormalLen = lengthSqrt(noiseNormal);
+      // Physics-based temperature and Blackbody LUT
+      const innerR = originRadius.add(bandWidth.mul(0.5));
+      const peakTempK = float(5000.0);
+      const tempK = peakTempK.mul(pow(innerR.div(xyLen.max(0.01)), float(0.75)));
 
-      // Color ramp evaluation
-      const rampInput =
-        xyLen
-          .add(noiseAmpLen.sub(0.780).mul(1.5))
-          .add(noiseAmpLen.sub(noiseNormalLen).mul(19.750));
-
-      const rampA = vec4(uniforms.rampCol1, uniforms.rampPos1);
-      const rampB = vec4(uniforms.rampCol2, uniforms.rampPos2);
-      const rampC = vec4(uniforms.rampCol3, uniforms.rampPos3);
-
-      const baseCol = ColorRamp3_BSpline(rampInput.x, rampA, rampB, rampC);
+      const normalizedTemp = clamp(tempK.sub(float(1000.0)).div(float(39000.0)), float(0.0), float(1.0));
+      const baseCol = texture(textures.blackbodyTexture, vec2(normalizedTemp, float(0.5))).rgb;
       const emissiveCol = baseCol.mul(uniforms.rampEmission).add(uniforms.emissionColor);
 
       // Core suppression near origin

@@ -124,7 +124,21 @@ export function createCubeStructure(config: CubeStructureConfig) {
         cubeGeometry.dispose();
         edges.dispose();
         lineMaterial.dispose();
-        roots.forEach((root) => root.unmount());
+        // Avoid React warning in StrictMode: unmount nested roots after the current commit finishes.
+        roots.forEach((root) => {
+            const unmount = () => {
+                try {
+                    root.unmount();
+                } catch {
+                    // Best-effort cleanup.
+                }
+            };
+            if (typeof queueMicrotask === 'function') {
+                queueMicrotask(unmount);
+            } else {
+                setTimeout(unmount, 0);
+            }
+        });
     };
 
     const updateLocale = (newLocale: Locale) => {

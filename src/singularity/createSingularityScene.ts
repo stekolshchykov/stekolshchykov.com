@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { WebGLRenderer } from 'three';
+import { TextureLoader, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type BloomNode from 'three/addons/tsl/display/BloomNode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
@@ -63,7 +63,7 @@ function makeFallbackStarsTexture(width = 1024, height = 512): THREE.CanvasTextu
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, width, height);
 
-  // Sparse stars
+  // Sparse stars.
   for (let i = 0; i < 5500; i++) {
     const x = Math.random() * width;
     const y = Math.random() * height;
@@ -77,7 +77,7 @@ function makeFallbackStarsTexture(width = 1024, height = 512): THREE.CanvasTextu
   }
   ctx.globalAlpha = 1;
 
-  // Soft nebula gradient layer
+  // Soft nebula gradient layer.
   const g = ctx.createRadialGradient(width * 0.35, height * 0.55, 0, width * 0.35, height * 0.55, width * 0.65);
   g.addColorStop(0, 'rgba(90, 110, 255, 0.18)');
   g.addColorStop(0.4, 'rgba(140, 70, 220, 0.10)');
@@ -91,6 +91,56 @@ function makeFallbackStarsTexture(width = 1024, height = 512): THREE.CanvasTextu
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+function makeBlackbodyLUT(size = 256): THREE.DataTexture {
+  const data = new Float32Array(size * 4);
+
+  const getColor = (tempK: number) => {
+    // Approximation of blackbody table using a few key points.
+    const points = [
+      { t: 1000, c: [1.0, 0.0337, 0.0] },
+      { t: 2000, c: [1.0, 0.2647, 0.0033] },
+      { t: 4000, c: [1.0, 0.6636, 0.3583] },
+      { t: 6000, c: [1.0, 0.9019, 0.8473] },
+      { t: 10000, c: [0.6268, 0.7039, 1.0] },
+      { t: 20000, c: [0.4196, 0.5339, 1.0] },
+      { t: 40000, c: [0.3563, 0.4745, 1.0] },
+    ] as const;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (tempK >= a.t && tempK <= b.t) {
+        const f = (tempK - a.t) / (b.t - a.t);
+        return [
+          a.c[0] + (b.c[0] - a.c[0]) * f,
+          a.c[1] + (b.c[1] - a.c[1]) * f,
+          a.c[2] + (b.c[2] - a.c[2]) * f,
+        ];
+      }
+    }
+    return points[points.length - 1].c;
+  };
+
+  for (let i = 0; i < size; i++) {
+    const tempK = 1000 + (i / (size - 1)) * 39000;
+    const [r, g, b] = getColor(tempK);
+    data[i * 4 + 0] = r;
+    data[i * 4 + 1] = g;
+    data[i * 4 + 2] = b;
+    data[i * 4 + 3] = 1.0;
+  }
+
+  const tex = new THREE.DataTexture(data, size, 1, THREE.RGBAFormat, THREE.FloatType);
+  tex.needsUpdate = true;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
 
 function createWebGLFallbackMaterial(): THREE.ShaderMaterial {
   // Deterministic WebGL fallback used for E2E and environments where WebGPU init is unreliable.
@@ -225,11 +275,23 @@ export async function createSingularityScene(params: {
     window.addEventListener('resize', resize, { passive: true });
     resize();
 
-    let firstFrameFired = false;
+    let frameCount = 0;
+    let lastFpsTime = performance.now();
     const start = performance.now();
+    let firstFrameFired = false;
 
     renderer.setAnimationLoop(() => {
       const now = performance.now();
+
+      // FPS tracking
+      frameCount++;
+      const delta = now - lastFpsTime;
+      if (delta >= 1000) {
+        (window as any).__BH_FPS__ = Math.round((frameCount * 1000) / delta);
+        frameCount = 0;
+        lastFpsTime = now;
+      }
+
       material.uniforms.uTime.value = (now - start) / 1000;
 
       renderer.render(scene, camera);
@@ -280,11 +342,14 @@ export async function createSingularityScene(params: {
   // ASSETS (public, normalized names)
   // ------------------------------------------------------------------
 
-  const texLoader = new THREE.TextureLoader();
+  // Use core loaders from `three` even in WebGPU mode. `three/webgpu` is not guaranteed
+  // to re-export loaders; if the loader is missing, the background silently falls back.
+  const texLoader = new TextureLoader();
 
   const noiseDeepUrl = publicUrl('assets/singularity/noise_deep.png');
   const nebulaUrl = publicUrl('assets/singularity/nebula_background.png');
   const nebulaBackupUrl = publicUrl('assets/singularity/nebula_background_backup.png');
+
 
   let noiseDeepTexture: THREE.Texture;
   let starsTexture: THREE.Texture;
@@ -318,22 +383,22 @@ export async function createSingularityScene(params: {
 
   try {
     starsTexture = await texLoader.loadAsync(nebulaUrl);
-    applyStarsTextureSettings(starsTexture);
   } catch {
     try {
       starsTexture = await texLoader.loadAsync(nebulaBackupUrl);
-      applyStarsTextureSettings(starsTexture);
     } catch {
       starsTexture = makeFallbackStarsTexture();
     }
   }
+  applyStarsTextureSettings(starsTexture);
 
   // Environment map used both as background and as a “through-transparency” env in the raymarch shader.
   scene.backgroundNode = texture(starsTexture, equirectUV()).mul(uniforms.backgroundIntensity);
 
   const geometry = new THREE.SphereGeometry(1, 16, 16);
   const material = new THREE.MeshStandardNodeMaterial({ side: THREE.DoubleSide });
-  const colorNode = createSingularityColorNode(uniforms, { noiseDeepTexture, starsTexture });
+  const blackbodyTexture = makeBlackbodyLUT();
+  const colorNode = createSingularityColorNode(uniforms, { noiseDeepTexture, starsTexture, blackbodyTexture });
   material.colorNode = colorNode;
   material.emissiveNode = colorNode;
   material.roughness = 1.0;
@@ -403,7 +468,12 @@ export async function createSingularityScene(params: {
     const w = Math.max(1, Math.floor(window.innerWidth));
     const h = Math.max(1, Math.floor(window.innerHeight));
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Background is expensive (raymarch + postprocessing). Cap total pixels to keep FPS stable
+    // on high-DPR / large displays, while preserving quality for the full debug view.
+    const maxPixels = showDebugPanel || showGizmo || controlsEnabled ? 4_000_000 : 2_300_000;
+    const deviceDpr = window.devicePixelRatio || 1;
+    const dprByPixels = Math.sqrt(maxPixels / (w * h));
+    const dpr = Math.max(0.5, Math.min(deviceDpr, 2, dprByPixels));
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
 
@@ -449,9 +519,20 @@ export async function createSingularityScene(params: {
 
   let firstFrameFired = false;
   let lastFrameTime = performance.now();
+  let frameCount = 0;
+  let lastFpsTime = performance.now();
 
   renderer.setAnimationLoop(() => {
     const now = performance.now();
+
+    // FPS tracking
+    frameCount++;
+    const delta = now - lastFpsTime;
+    if (delta >= 1000) {
+      (window as any).__BH_FPS__ = Math.round((frameCount * 1000) / delta);
+      frameCount = 0;
+      lastFpsTime = now;
+    }
     const dt = clamp((now - lastFrameTime) / 1000, 1 / 240, 0.05);
     lastFrameTime = now;
 
@@ -554,6 +635,7 @@ export async function createSingularityScene(params: {
 
       postProcessing?.dispose?.();
       renderer.dispose();
+      blackbodyTexture.dispose();
 
       if (gizmo && gizmo.parentNode === gizmoRootEl) gizmoRootEl.removeChild(gizmo);
     },
